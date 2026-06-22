@@ -155,14 +155,9 @@ func Reconcile(iface Interface) error {
 		}
 	}
 
-	// NAT (masquerade toggle, or custom egress / extra subnets set on their own).
-	if NATEnabled(iface) {
-		if _, err := SetupNAT(iface); err != nil {
-			return fmt.Errorf("nat setup: %w", err)
-		}
-	} else {
-		_ = TeardownNAT(iface)
-	}
+	// NAT is reconciled by the engine (via wg.ReconcileNAT) using the previously
+	// applied state, so disabled/changed rules are torn down with their old
+	// params rather than recomputed from the new config.
 	return nil
 }
 

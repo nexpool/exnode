@@ -214,12 +214,8 @@ func (e *SingboxEngine) stopLocked() error {
 
 func (e *SingboxEngine) applyNATLocked(want map[string]wg.Interface) {
 	for _, iface := range want {
-		if wg.NATEnabled(iface) {
-			if _, err := wg.SetupNAT(iface); err != nil {
-				log.Printf("[singbox] nat setup %s failed: %v", iface.Name, err)
-			}
-		} else {
-			_ = wg.TeardownNAT(iface)
+		if err := wg.ReconcileNAT(e.managed[iface.Name], iface); err != nil {
+			log.Printf("[singbox] nat %s failed: %v", iface.Name, err)
 		}
 		// Policy routes, removing any lines dropped since last apply.
 		wg.ReconcilePolicyRoutes(e.managed[iface.Name].PolicyRoutes, iface.PolicyRoutes)

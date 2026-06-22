@@ -31,7 +31,11 @@ func (e *KernelEngine) Apply(desired []wg.Interface) error {
 		if err := wg.Reconcile(iface); err != nil {
 			log.Printf("[kernel] reconcile %s failed: %v", iface.Name, err)
 		}
-		// Apply policy routes, removing any lines dropped since last apply.
+		// NAT + policy routes use the previously-applied state so disabled/changed
+		// rules are torn down with their old params (not recomputed from new).
+		if err := wg.ReconcileNAT(e.managed[iface.Name], iface); err != nil {
+			log.Printf("[kernel] nat %s failed: %v", iface.Name, err)
+		}
 		wg.ReconcilePolicyRoutes(e.managed[iface.Name].PolicyRoutes, iface.PolicyRoutes)
 	}
 

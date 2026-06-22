@@ -51,6 +51,32 @@ func NATEnabled(iface Interface) bool {
 		strings.TrimSpace(iface.NATSubnets) != ""
 }
 
+// natParamsDiffer reports whether the rule-affecting NAT params changed.
+func natParamsDiffer(a, b Interface) bool {
+	return a.Masquerade != b.Masquerade ||
+		a.EgressInterface != b.EgressInterface ||
+		a.NATSubnets != b.NATSubnets ||
+		a.Address != b.Address
+}
+
+// ReconcileNAT converges NAT from the previously-applied state (old) to the
+// desired one (new). It tears down the OLD rules (using the old params, so the
+// exact installed rules are removed) when NAT was turned off or its params
+// changed, then installs the new rules. This is why disabling custom NAT
+// actually removes the rules instead of computing a delete from the new (empty)
+// config.
+func ReconcileNAT(old, new Interface) error {
+	if NATEnabled(old) && (!NATEnabled(new) || natParamsDiffer(old, new)) {
+		_ = TeardownNAT(old)
+	}
+	if NATEnabled(new) {
+		if _, err := SetupNAT(new); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // natSources returns the source CIDRs to masquerade. When the operator set one
 // or more custom subnets they are used verbatim (they replace the default);
 // otherwise the tunnel subnet is masqueraded.
