@@ -142,3 +142,6 @@ systemctl enable exnode >/dev/null 2>&1 || true
 echo
 say "完成。编辑 ${CONFIG_DIR}/config.yml 后执行: exnode start"
 echo "    管理命令: exnode {start|stop|restart|status|log|update|uninstall|config}"
+
+# 安装完成后删除本脚本(仅当从文件运行时;管道执行 $0 为 bash 则跳过)
+if [[ -f "$0" ]]; then rm -f -- "$0"; fi
