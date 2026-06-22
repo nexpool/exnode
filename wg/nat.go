@@ -42,6 +42,15 @@ func natRules(subnets []string, device, egress, snatIP string) []rule {
 	return rules
 }
 
+// NATEnabled reports whether NAT should be installed for this interface: either
+// the "上网访问" toggle is on, or a custom egress / extra source subnet was set
+// (custom NAT applies on its own, independent of the toggle).
+func NATEnabled(iface Interface) bool {
+	return iface.Masquerade ||
+		strings.TrimSpace(iface.EgressInterface) != "" ||
+		strings.TrimSpace(iface.NATSubnets) != ""
+}
+
 // natSources returns the source CIDRs to masquerade: always the tunnel subnet,
 // plus any extra subnets the operator configured (e.g. a LAN behind the host).
 func natSources(iface Interface) ([]string, error) {

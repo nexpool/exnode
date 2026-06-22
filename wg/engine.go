@@ -155,8 +155,8 @@ func Reconcile(iface Interface) error {
 		}
 	}
 
-	// NAT.
-	if iface.Masquerade {
+	// NAT (masquerade toggle, or custom egress / extra subnets set on their own).
+	if NATEnabled(iface) {
 		if _, err := SetupNAT(iface); err != nil {
 			return fmt.Errorf("nat setup: %w", err)
 		}

@@ -214,7 +214,7 @@ func (e *SingboxEngine) stopLocked() error {
 
 func (e *SingboxEngine) applyNATLocked(want map[string]wg.Interface) {
 	for _, iface := range want {
-		if iface.Masquerade {
+		if wg.NATEnabled(iface) {
 			if _, err := wg.SetupNAT(iface); err != nil {
 				log.Printf("[singbox] nat setup %s failed: %v", iface.Name, err)
 			}
