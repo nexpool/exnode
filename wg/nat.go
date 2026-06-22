@@ -51,14 +51,12 @@ func NATEnabled(iface Interface) bool {
 		strings.TrimSpace(iface.NATSubnets) != ""
 }
 
-// natSources returns the source CIDRs to masquerade: always the tunnel subnet,
-// plus any extra subnets the operator configured (e.g. a LAN behind the host).
+// natSources returns the source CIDRs to masquerade. When the operator set one
+// or more custom subnets they are used verbatim (they replace the default);
+// otherwise the tunnel subnet is masqueraded.
 func natSources(iface Interface) ([]string, error) {
-	wgSubnet, err := subnetFor(iface.Address)
-	if err != nil {
-		return nil, err
-	}
-	subnets := []string{wgSubnet}
+	var custom []string
+	seen := map[string]struct{}{}
 	for _, s := range strings.Split(iface.NATSubnets, ",") {
 		if s = strings.TrimSpace(s); s == "" {
 			continue
@@ -67,11 +65,20 @@ func natSources(iface Interface) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid nat subnet %q: %w", s, err)
 		}
-		if norm != wgSubnet {
-			subnets = append(subnets, norm)
+		if _, dup := seen[norm]; dup {
+			continue
 		}
+		seen[norm] = struct{}{}
+		custom = append(custom, norm)
 	}
-	return subnets, nil
+	if len(custom) > 0 {
+		return custom, nil
+	}
+	wgSubnet, err := subnetFor(iface.Address)
+	if err != nil {
+		return nil, err
+	}
+	return []string{wgSubnet}, nil
 }
 
 // resolveEgress turns the configured egress spec into the device to use and an
