@@ -94,12 +94,36 @@ func (p PanelConfig) HTTPTimeout() time.Duration {
 	return time.Duration(p.Timeout) * time.Second
 }
 
-// Load reads and validates a YAML config file.
+// Load reads and validates the config, taking the AES passphrase from the
+// EXNODE_KEY environment variable. See LoadWithKey.
 func Load(path string) (*Conf, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read config %q: %w", path, err)
+	return LoadWithKey(path, os.Getenv("EXNODE_KEY"))
+}
+
+// LoadWithKey reads and validates the YAML config. The config bytes come from
+// the EXNODE_CONFIG environment variable when set, otherwise from the file at
+// path. If the bytes are an AES-encrypted blob (see Encrypt), they are
+// decrypted with passphrase first. Plaintext YAML continues to work unchanged.
+func LoadWithKey(path, passphrase string) (*Conf, error) {
+	var data []byte
+	if env := os.Getenv("EXNODE_CONFIG"); env != "" {
+		data = []byte(env)
+	} else {
+		var err error
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read config %q: %w", path, err)
+		}
 	}
+
+	if IsEncrypted(data) {
+		plain, err := Decrypt(data, passphrase)
+		if err != nil {
+			return nil, err
+		}
+		data = plain
+	}
+
 	var c Conf
 	if err := yaml.Unmarshal(data, &c); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)

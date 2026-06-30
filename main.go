@@ -9,10 +9,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -45,11 +47,41 @@ var version = "dev"
 
 func main() {
 	configPath := flag.String("c", "/etc/exnode/config.yml", "config file path")
+	keyFlag := flag.String("k", "", "AES passphrase for an encrypted config (overrides EXNODE_KEY)")
+	encrypt := flag.Bool("encrypt", false, "encrypt the -c config file in place and exit")
+	decrypt := flag.Bool("decrypt", false, "decrypt the -c config to stdout and exit")
 	flag.Parse()
 
-	cfg, err := conf.Load(*configPath)
+	passphrase := *keyFlag
+	if passphrase == "" {
+		passphrase = os.Getenv("EXNODE_KEY")
+	}
+
+	if *encrypt {
+		if err := encryptConfigFile(*configPath, passphrase); err != nil {
+			log.Fatalf("encrypt config: %v", err)
+		}
+		log.Printf("encrypted %s in place", *configPath)
+		return
+	}
+
+	if *decrypt {
+		plain, err := decryptConfigFile(*configPath, passphrase)
+		if err != nil {
+			log.Fatalf("decrypt config: %v", err)
+		}
+		os.Stdout.Write(plain)
+		return
+	}
+
+	cfg, err := conf.LoadWithKey(*configPath, passphrase)
 	if err != nil {
 		log.Fatalf("load config: %v", err)
+	}
+
+	switch strings.ToLower(cfg.Log.Level) {
+	case "none", "off", "silent", "quiet", "disabled":
+		log.SetOutput(io.Discard)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -70,4 +102,46 @@ func main() {
 	<-ctx.Done()
 	wg.Wait()
 	log.Println("exnode stopped")
+}
+
+// decryptConfigFile returns the plaintext YAML for path. An already-plaintext
+// file is returned unchanged so the command is safe to run on either form.
+func decryptConfigFile(path, passphrase string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if !conf.IsEncrypted(data) {
+		return data, nil
+	}
+	return conf.Decrypt(data, passphrase)
+}
+
+// encryptConfigFile reads the plaintext YAML at path, validates it parses, and
+// rewrites the file as an AES-encrypted blob. Re-encrypting an already
+// encrypted file is a no-op error so a passphrase typo can't double-wrap it.
+func encryptConfigFile(path, passphrase string) error {
+	if passphrase == "" {
+		return fmt.Errorf("no passphrase: pass -k or set EXNODE_KEY")
+	}
+	plain, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if conf.IsEncrypted(plain) {
+		return fmt.Errorf("%s is already encrypted", path)
+	}
+	if _, err := conf.LoadWithKey(path, ""); err != nil {
+		return fmt.Errorf("refusing to encrypt invalid config: %w", err)
+	}
+	blob, err := conf.Encrypt(plain, passphrase)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	mode := os.FileMode(0o600)
+	if err == nil {
+		mode = info.Mode().Perm()
+	}
+	return os.WriteFile(path, blob, mode)
 }
