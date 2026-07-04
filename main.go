@@ -45,6 +45,15 @@ func singboxConfig(cfg *conf.Conf, nodeID uint) engine.SingboxConfig {
 // with -ldflags "-X main.version=...".
 var version = "dev"
 
+// defaultKey is the built-in AES passphrase used when neither -k nor EXNODE_KEY
+// is given, so the agent decrypts its config without any runtime environment.
+// Override at build time with -ldflags "-X main.defaultKey=...".
+//
+// SECURITY: this key is embedded in the binary — anyone who obtains the binary
+// can recover it (e.g. `strings`). It protects the config file at rest and in
+// backups/transit, NOT against someone who already has the binary itself.
+var defaultKey = "exnodeKey-1123123"
+
 func main() {
 	configPath := flag.String("c", "/etc/exnode/config.yml", "config file path")
 	keyFlag := flag.String("k", "", "AES passphrase for an encrypted config (overrides EXNODE_KEY)")
@@ -55,6 +64,9 @@ func main() {
 	passphrase := *keyFlag
 	if passphrase == "" {
 		passphrase = os.Getenv("EXNODE_KEY")
+	}
+	if passphrase == "" {
+		passphrase = defaultKey
 	}
 
 	if *encrypt {
