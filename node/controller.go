@@ -63,7 +63,7 @@ func (c *Controller) Close() {
 
 // Run blocks until ctx is cancelled, driving the heartbeat and status loops.
 func (c *Controller) Run(ctx context.Context) {
-	host := c.client.ApiHost()
+	host := c.client.Label()
 	log.Printf("[%s] controller started (heartbeat %s, status %s)", host, c.hbEvery, c.statEvery)
 
 	// Force an initial sync on startup regardless of revision.
@@ -120,12 +120,12 @@ func (c *Controller) ensureEngine(engineType string) {
 	}
 	c.engine = engine.Build(engineType, c.singbox)
 	c.engineType = engineType
-	log.Printf("[%s] datapath engine: %s", c.client.ApiHost(), engineType)
+	log.Printf("[%s] datapath engine: %s", c.client.Label(), engineType)
 }
 
 // heartbeatTick checks in and, when the revision changed (or force), re-syncs.
 func (c *Controller) heartbeatTick(force bool) {
-	host := c.client.ApiHost()
+	host := c.client.Label()
 	resp, err := c.client.Heartbeat(panel.HeartbeatRequest{AgentVersion: c.version, OS: c.osName})
 	if err != nil {
 		log.Printf("[%s] heartbeat failed: %v", host, err)
@@ -141,7 +141,7 @@ func (c *Controller) heartbeatTick(force bool) {
 
 // sync pulls the full desired state and hands it to the engine to converge.
 func (c *Controller) sync() {
-	host := c.client.ApiHost()
+	host := c.client.Label()
 	resp, err := c.client.Sync()
 	if err != nil {
 		log.Printf("[%s] sync failed: %v", host, err)
@@ -173,7 +173,7 @@ func (c *Controller) sync() {
 
 // statusTick reads stats from the engine and reports them to the panel.
 func (c *Controller) statusTick() {
-	host := c.client.ApiHost()
+	host := c.client.Label()
 	c.mu.Lock()
 	eng := c.engine
 	c.mu.Unlock()

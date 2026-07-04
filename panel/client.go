@@ -6,9 +6,11 @@ package panel
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -33,8 +35,38 @@ func New(apiHost string, nodeID uint, secret string, timeout time.Duration) *Cli
 	}
 }
 
-// ApiHost exposes the configured panel host (for logging).
+// ApiHost exposes the configured panel host (for internal use only — do NOT
+// log it; use Label for a non-sensitive tag).
 func (c *Client) ApiHost() string { return c.apiHost }
+
+// NodeID exposes the configured node id.
+func (c *Client) NodeID() uint { return c.nodeID }
+
+// Label is a non-sensitive log tag for this panel connection. It deliberately
+// omits the panel host/domain so the domain never appears in logs; the node id
+// is enough to tell multiple panels apart.
+func (c *Client) Label() string { return "node " + strconv.FormatUint(uint64(c.nodeID), 10) }
+
+// panelHost is the bare hostname of the configured panel, used for redaction.
+func (c *Client) panelHost() string {
+	if u, err := url.Parse(c.apiHost); err == nil {
+		return u.Hostname()
+	}
+	return ""
+}
+
+// sanitize strips the panel URL and hostname from a message so the domain never
+// leaks into logs (transport errors embed the full request URL, e.g.
+// `Get "https://panel/api/...": dial tcp ...`).
+func (c *Client) sanitize(s string) string {
+	if c.apiHost != "" {
+		s = strings.ReplaceAll(s, c.apiHost, "[panel]")
+	}
+	if h := c.panelHost(); h != "" {
+		s = strings.ReplaceAll(s, h, "[panel]")
+	}
+	return s
+}
 
 // envelope is the panel's standard response wrapper.
 type envelope struct {
@@ -116,8 +148,15 @@ func (c *Client) ReportStatus(req StatusRequest) error {
 }
 
 // do performs an authenticated request, unwraps the envelope, and decodes the
-// data field into out (when non-nil).
-func (c *Client) do(method, path string, body any, out any) error {
+// data field into out (when non-nil). Any error it returns is scrubbed of the
+// panel host/domain before it reaches a caller (and thus the log).
+func (c *Client) do(method, path string, body any, out any) (err error) {
+	defer func() {
+		if err != nil {
+			err = errors.New(c.sanitize(err.Error()))
+		}
+	}()
+
 	var reader io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
