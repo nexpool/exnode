@@ -31,6 +31,8 @@ type Config struct {
 	Dev    string // optional underlay NIC
 	Local  string // address assigned to the link (CIDR)
 	Remote string // peer VTEP address
+	// MTU overrides the link MTU. 0 = derive it from TunnelMTU.
+	MTU int
 	// TunnelMTU is the MTU of the tunnel this link rides on (0 = leave the kernel
 	// default). The link is sized down by VXLANOverhead.
 	TunnelMTU int
@@ -74,6 +76,18 @@ func staleRoutes(prev, next []Config) []string {
 		}
 	}
 	return out
+}
+
+// linkMTU is the MTU to put on the link: the explicit one when set, otherwise the
+// tunnel MTU minus the VXLAN overhead, otherwise 0 (= leave the kernel default).
+func linkMTU(c Config) int {
+	if c.MTU > 0 {
+		return c.MTU
+	}
+	if c.TunnelMTU > VXLANOverhead {
+		return c.TunnelMTU - VXLANOverhead
+	}
+	return 0
 }
 
 // addArgs builds the "ip link add" argv for one config.
@@ -189,8 +203,8 @@ func Ensure(c Config) {
 	if err := ip("link", "set", c.Name, "up"); err != nil {
 		log.Printf("[vxlan] up %s: %v", c.Name, err)
 	}
-	if c.TunnelMTU > VXLANOverhead {
-		if err := ip("link", "set", c.Name, "mtu", strconv.Itoa(c.TunnelMTU-VXLANOverhead)); err != nil {
+	if mtu := linkMTU(c); mtu > 0 {
+		if err := ip("link", "set", c.Name, "mtu", strconv.Itoa(mtu)); err != nil {
 			log.Printf("[vxlan] mtu %s: %v", c.Name, err)
 		}
 	}

@@ -106,9 +106,11 @@ type SyncResponse struct {
 
 // VXLAN is one overlay link the panel wants on this node.
 type VXLAN struct {
-	Name   string `json:"name"`
-	VNI    int    `json:"vni"`
-	Port   int    `json:"port"`
+	Name string `json:"name"`
+	VNI  int    `json:"vni"`
+	Port int    `json:"port"`
+	// MTU overrides the link MTU; 0 = derive it from the tunnel MTU.
+	MTU    int    `json:"mtu,omitempty"`
 	Dev    string `json:"dev,omitempty"`
 	Local  string `json:"local"`
 	Remote string `json:"remote"`

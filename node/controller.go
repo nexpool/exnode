@@ -244,6 +244,7 @@ func overlayConfigs(ifaces []panel.Interface) []overlay.Config {
 			Local:     in.VXLAN.Local,
 			Remote:    in.VXLAN.Remote,
 			Routes:    in.VXLAN.Routes,
+			MTU:       in.VXLAN.MTU,
 			TunnelMTU: in.MTU,
 		})
 	}

@@ -119,3 +119,22 @@ func TestStaleRoutes(t *testing.T) {
 		t.Fatalf("no-op reconcile must leave routes alone, got %v", again)
 	}
 }
+
+// An explicit MTU wins; otherwise the link is sized down from the tunnel MTU.
+func TestLinkMTU(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+		want int
+	}{
+		{"explicit mtu wins", Config{MTU: 1400, TunnelMTU: 1420}, 1400},
+		{"auto from the tunnel", Config{TunnelMTU: 1420}, 1370},
+		{"no tunnel mtu -> kernel default", Config{}, 0},
+		{"tunnel smaller than the overhead -> kernel default", Config{TunnelMTU: 40}, 0},
+	}
+	for _, c := range cases {
+		if got := linkMTU(c.cfg); got != c.want {
+			t.Fatalf("%s: linkMTU = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
