@@ -80,16 +80,38 @@ type envelope struct {
 type HeartbeatRequest struct {
 	AgentVersion string `json:"agent_version"`
 	OS           string `json:"os"`
+	Arch         string `json:"arch"`
+	// UpgradeError reports why the last self-upgrade attempt failed (empty when
+	// there is nothing to report).
+	UpgradeError string `json:"upgrade_error,omitempty"`
+}
+
+// UpgradeDirective is a self-upgrade order from the panel: download URL, replace
+// this binary, restart.
+type UpgradeDirective struct {
+	Version string `json:"version"`
+	URL     string `json:"url"`
 }
 
 type HeartbeatResponse struct {
-	ConfigRevision uint `json:"config_revision"`
+	ConfigRevision uint              `json:"config_revision"`
+	Upgrade        *UpgradeDirective `json:"upgrade,omitempty"`
 }
 
 type SyncResponse struct {
 	ConfigRevision uint        `json:"config_revision"`
 	Engine         string      `json:"engine"`
 	Interfaces     []Interface `json:"interfaces"`
+}
+
+// VXLAN is one overlay link the panel wants on this node.
+type VXLAN struct {
+	Name   string `json:"name"`
+	VNI    int    `json:"vni"`
+	Port   int    `json:"port"`
+	Dev    string `json:"dev,omitempty"`
+	Local  string `json:"local"`
+	Remote string `json:"remote"`
 }
 
 type Interface struct {
@@ -103,6 +125,7 @@ type Interface struct {
 	NATSubnets      string `json:"nat_subnets"`
 	PolicyRoutes    string `json:"policy_routes"`
 	Peers           []Peer `json:"peers"`
+	VXLAN           *VXLAN `json:"vxlan,omitempty"`
 }
 
 type Peer struct {

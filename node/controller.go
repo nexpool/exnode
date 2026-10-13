@@ -6,12 +6,15 @@ package node
 import (
 	"context"
 	"log"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/nexpool/exnode/conf"
 	"github.com/nexpool/exnode/engine"
+	"github.com/nexpool/exnode/overlay"
 	"github.com/nexpool/exnode/panel"
+	"github.com/nexpool/exnode/selfupdate"
 	"github.com/nexpool/exnode/wg"
 )
 
@@ -30,7 +33,8 @@ type Controller struct {
 	engineType string
 	revKnown   bool
 	revision   uint
-	desired    []wg.Interface // last applied desired state (for the policy watchdog)
+	desired    []wg.Interface   // last applied desired state (for the policy watchdog)
+	vxlan      []overlay.Config // overlay links currently applied
 }
 
 // policyWatchdogEvery is how often the agent re-checks policy routes and re-adds
@@ -124,13 +128,27 @@ func (c *Controller) ensureEngine(engineType string) {
 }
 
 // heartbeatTick checks in and, when the revision changed (or force), re-syncs.
+// A pending self-upgrade order is acted on before the sync: on success the
+// process is replaced and this loop never continues.
 func (c *Controller) heartbeatTick(force bool) {
 	host := c.client.Label()
-	resp, err := c.client.Heartbeat(panel.HeartbeatRequest{AgentVersion: c.version, OS: c.osName})
+	resp, err := c.client.Heartbeat(panel.HeartbeatRequest{
+		AgentVersion: c.version,
+		OS:           c.osName,
+		Arch:         runtime.GOARCH,
+		UpgradeError: selfupdate.PendingError(),
+	})
 	if err != nil {
 		log.Printf("[%s] heartbeat failed: %v", host, err)
 		return
 	}
+	selfupdate.ClearError()
+
+	if resp.Upgrade != nil {
+		log.Printf("[%s] panel requested upgrade to %s", host, resp.Upgrade.Version)
+		selfupdate.Maybe(&selfupdate.Order{Version: resp.Upgrade.Version, URL: resp.Upgrade.URL}, c.version)
+	}
+
 	c.mu.Lock()
 	changed := force || !c.revKnown || resp.ConfigRevision != c.revision
 	c.mu.Unlock()
@@ -154,6 +172,7 @@ func (c *Controller) sync() {
 	}
 
 	c.mu.Lock()
+	prevVXLAN := c.vxlan
 	c.ensureEngine(resp.Engine)
 	eng := c.engine
 	c.mu.Unlock()
@@ -163,11 +182,18 @@ func (c *Controller) sync() {
 		return
 	}
 
+	nextVXLAN := overlayConfigs(resp.Interfaces)
 	c.mu.Lock()
 	c.revision = resp.ConfigRevision
 	c.revKnown = true
 	c.desired = desired
+	c.vxlan = nextVXLAN
 	c.mu.Unlock()
+
+	// Overlay links ride on top of the tunnel, so they are converged once the
+	// datapath itself is in place.
+	overlay.Reconcile(prevVXLAN, nextVXLAN)
+
 	log.Printf("[%s] synced revision %d, engine %s (%d interface(s))", host, resp.ConfigRevision, c.engineType, len(desired))
 }
 
@@ -200,6 +226,27 @@ func (c *Controller) statusTick() {
 	if err := c.client.ReportStatus(panel.StatusRequest{Peers: peers}); err != nil {
 		log.Printf("[%s] report status failed: %v", host, err)
 	}
+}
+
+// overlayConfigs turns the panel's VXLAN blocks into the links this node must
+// have. The tunnel MTU rides along so the overlay link is sized correctly.
+func overlayConfigs(ifaces []panel.Interface) []overlay.Config {
+	var out []overlay.Config
+	for _, in := range ifaces {
+		if in.VXLAN == nil || in.VXLAN.Name == "" {
+			continue
+		}
+		out = append(out, overlay.Config{
+			Name:      in.VXLAN.Name,
+			VNI:       in.VXLAN.VNI,
+			Port:      in.VXLAN.Port,
+			Dev:       in.VXLAN.Dev,
+			Local:     in.VXLAN.Local,
+			Remote:    in.VXLAN.Remote,
+			TunnelMTU: in.MTU,
+		})
+	}
+	return out
 }
 
 func toEngineInterface(in panel.Interface) wg.Interface {
