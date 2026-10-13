@@ -112,6 +112,8 @@ type VXLAN struct {
 	Dev    string `json:"dev,omitempty"`
 	Local  string `json:"local"`
 	Remote string `json:"remote"`
+	// Routes are already rendered as "ip route replace" arguments.
+	Routes []string `json:"routes,omitempty"`
 }
 
 type Interface struct {

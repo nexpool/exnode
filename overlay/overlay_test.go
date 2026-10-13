@@ -88,3 +88,34 @@ func TestPlanIgnoresUnnamedConfigs(t *testing.T) {
 		t.Fatal("sanity: link name must be in the argv")
 	}
 }
+
+// Routes are applied with "route replace" (idempotent) and removed with "del".
+func TestRouteArgs(t *testing.T) {
+	spec := "192.168.200.0/24 via 10.10.13.2 dev vxlan1133"
+	if got, want := routeArgs(spec), []string{"route", "replace", "192.168.200.0/24", "via", "10.10.13.2", "dev", "vxlan1133"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("routeArgs = %v, want %v", got, want)
+	}
+	if got, want := routeDelArgs(spec), []string{"route", "del", "192.168.200.0/24", "via", "10.10.13.2", "dev", "vxlan1133"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("routeDelArgs = %v, want %v", got, want)
+	}
+}
+
+// Dropped routes are cleaned up only while their link survives; when the whole
+// link goes away the kernel removes its routes with the device.
+func TestStaleRoutes(t *testing.T) {
+	prev := []Config{
+		{Name: "vxlan1133", Routes: []string{"a", "b"}},
+		{Name: "vxlan2000", Routes: []string{"gone-with-the-link"}},
+	}
+	next := []Config{
+		{Name: "vxlan1133", Routes: []string{"b", "d"}},
+	}
+
+	got := staleRoutes(prev, next)
+	if !reflect.DeepEqual(got, []string{"a"}) {
+		t.Fatalf("staleRoutes = %v, want [a]", got)
+	}
+	if again := staleRoutes(next, next); len(again) != 0 {
+		t.Fatalf("no-op reconcile must leave routes alone, got %v", again)
+	}
+}

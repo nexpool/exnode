@@ -34,6 +34,46 @@ type Config struct {
 	// TunnelMTU is the MTU of the tunnel this link rides on (0 = leave the kernel
 	// default). The link is sized down by VXLANOverhead.
 	TunnelMTU int
+	// Routes are routes to install on the link, each one the argument list of
+	// "ip route replace" (e.g. "192.168.200.0/24 via 10.10.13.2 dev vxlan1133").
+	Routes []string
+}
+
+// routeArgs builds the "ip route replace" argv for one route spec.
+func routeArgs(spec string) []string {
+	return append([]string{"route", "replace"}, strings.Fields(spec)...)
+}
+
+// routeDelArgs builds the "ip route del" argv for one route spec.
+func routeDelArgs(spec string) []string {
+	return append([]string{"route", "del"}, strings.Fields(spec)...)
+}
+
+// staleRoutes lists the routes of links that survive prev -> next but whose route
+// is no longer wanted. Routes of links that disappear need no cleanup: deleting
+// the device removes them with it.
+func staleRoutes(prev, next []Config) []string {
+	wanted := map[string]map[string]struct{}{}
+	for _, c := range next {
+		set := make(map[string]struct{}, len(c.Routes))
+		for _, r := range c.Routes {
+			set[r] = struct{}{}
+		}
+		wanted[c.Name] = set
+	}
+	var out []string
+	for _, c := range prev {
+		set, kept := wanted[c.Name]
+		if !kept {
+			continue
+		}
+		for _, r := range c.Routes {
+			if _, ok := set[r]; !ok {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
 }
 
 // addArgs builds the "ip link add" argv for one config.
@@ -162,6 +202,13 @@ func Ensure(c Config) {
 			log.Printf("[vxlan] addr %s: %v", c.Name, err)
 		}
 	}
+	// Routes through the overlay (e.g. the LAN behind the peer). "route replace"
+	// is idempotent, so repeating a sync never duplicates or flaps them.
+	for _, r := range c.Routes {
+		if err := ip(routeArgs(r)...); err != nil {
+			log.Printf("[vxlan] route %q: %v", r, err)
+		}
+	}
 }
 
 // Remove deletes one overlay link (safe when it is already gone).
@@ -179,6 +226,11 @@ func Reconcile(prev, next []Config) {
 	remove, ensure := Plan(prev, next)
 	for _, name := range remove {
 		Remove(name)
+	}
+	for _, spec := range staleRoutes(prev, next) {
+		if err := ip(routeDelArgs(spec)...); err != nil {
+			log.Printf("[vxlan] remove route %q: %v", spec, err)
+		}
 	}
 	for _, c := range ensure {
 		Ensure(c)
