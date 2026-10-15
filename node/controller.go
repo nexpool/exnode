@@ -7,6 +7,7 @@ import (
 	"context"
 	"log"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -194,7 +195,21 @@ func (c *Controller) sync() {
 	// datapath itself is in place.
 	overlay.Reconcile(prevVXLAN, nextVXLAN)
 
-	log.Printf("[%s] synced revision %d, engine %s (%d interface(s))", host, resp.ConfigRevision, c.engineType, len(desired))
+	log.Printf("[%s] synced revision %d, engine %s (%d interface(s), %d overlay link(s): %s)",
+		host, resp.ConfigRevision, c.engineType, len(desired), len(nextVXLAN), overlayNames(nextVXLAN))
+}
+
+// overlayNames lists the overlay links of a sync for the log line, so "the panel
+// configured a tunnel but the node created nothing" is visible at a glance.
+func overlayNames(cfgs []overlay.Config) string {
+	if len(cfgs) == 0 {
+		return "-"
+	}
+	names := make([]string, 0, len(cfgs))
+	for _, c := range cfgs {
+		names = append(names, c.Name)
+	}
+	return strings.Join(names, ",")
 }
 
 // statusTick reads stats from the engine and reports them to the panel.
