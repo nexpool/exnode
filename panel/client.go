@@ -106,9 +106,13 @@ type SyncResponse struct {
 
 // VXLAN is one overlay link the panel wants on this node.
 type VXLAN struct {
+	// Kind is "vxlan" (default), "ipip" or "gre".
+	Kind string `json:"kind,omitempty"`
 	Name string `json:"name"`
 	VNI  int    `json:"vni"`
 	Port int    `json:"port"`
+	// Key is the GRE key (0 = none).
+	Key int `json:"key,omitempty"`
 	// MTU overrides the link MTU; 0 = derive it from the tunnel MTU.
 	MTU    int    `json:"mtu,omitempty"`
 	Dev    string `json:"dev,omitempty"`

@@ -1,5 +1,5 @@
-// Package overlay applies the panel's VXLAN overlay links: one point-to-point
-// link per network member, created with the ip binary (argv, no shell):
+// Package overlay applies the panel's point-to-point overlay links — VXLAN, IPIP
+// or GRE — one per network member, created with the ip binary (argv, no shell):
 //
 //	ip link add vxlan3002 type vxlan id 3002 remote 38.91.117.189 dstport 3002 dev eth0
 //	ip link set vxlan3002 up
@@ -23,14 +23,24 @@ import (
 // + UDP + the VXLAN header).
 const VXLANOverhead = 50
 
+// Link kinds the panel can ask for.
+const (
+	KindVXLAN = "vxlan"
+	KindIPIP  = "ipip"
+	KindGRE   = "gre"
+)
+
 // Config is one overlay link the panel wants on this node.
 type Config struct {
-	Name   string // link name, e.g. vxlan3002
-	VNI    int
-	Port   int    // UDP destination port
+	// Kind is KindVXLAN (default), KindIPIP or KindGRE.
+	Kind   string
+	Name   string // link name, e.g. vxlan3002 / gre3 / ipip3
+	VNI    int    // VXLAN network identifier
+	Port   int    // VXLAN UDP destination port
+	Key    int    // GRE key (0 = none)
 	Dev    string // optional underlay NIC
 	Local  string // address assigned to the link (CIDR)
-	Remote string // peer VTEP address
+	Remote string // peer address (VTEP for VXLAN, tunnel endpoint for ipip/gre)
 	// MTU overrides the link MTU. 0 = derive it from TunnelMTU.
 	MTU int
 	// TunnelMTU is the MTU of the tunnel this link rides on (0 = leave the kernel
@@ -78,20 +88,62 @@ func staleRoutes(prev, next []Config) []string {
 	return out
 }
 
+// overhead is the encapsulation cost of a kind: 50 bytes for VXLAN (outer IPv4
+// 20 + UDP 8 + VXLAN 8 + inner Ethernet 14), 20 for IPIP and 24 for GRE.
+func overhead(c Config) int {
+	switch kind(c) {
+	case KindIPIP:
+		return 20
+	case KindGRE:
+		return 24
+	default:
+		return VXLANOverhead
+	}
+}
+
 // linkMTU is the MTU to put on the link: the explicit one when set, otherwise the
-// tunnel MTU minus the VXLAN overhead, otherwise 0 (= leave the kernel default).
+// tunnel MTU minus the encapsulation overhead, otherwise 0 (= leave the kernel
+// default).
 func linkMTU(c Config) int {
 	if c.MTU > 0 {
 		return c.MTU
 	}
-	if c.TunnelMTU > VXLANOverhead {
-		return c.TunnelMTU - VXLANOverhead
+	if o := overhead(c); c.TunnelMTU > o {
+		return c.TunnelMTU - o
 	}
 	return 0
 }
 
-// addArgs builds the "ip link add" argv for one config.
+// kind normalises Kind ("" means vxlan, so a panel that predates the field still
+// works).
+func kind(c Config) string {
+	switch c.Kind {
+	case KindIPIP, KindGRE:
+		return c.Kind
+	default:
+		return KindVXLAN
+	}
+}
+
+// addArgs builds the argv that creates the link:
+//
+//	vxlan: ip link add vxlan3002 type vxlan id 3002 remote … dstport … dev …
+//	ipip:  ip tunnel add ipip3 mode ipip remote … dev …
+//	gre:   ip tunnel add gre3 mode gre remote … dev … key …
 func addArgs(c Config) []string {
+	if k := kind(c); k != KindVXLAN {
+		args := []string{"tunnel", "add", c.Name, "mode", k}
+		if c.Remote != "" {
+			args = append(args, "remote", c.Remote)
+		}
+		if c.Dev != "" {
+			args = append(args, "dev", c.Dev)
+		}
+		if k == KindGRE && c.Key > 0 {
+			args = append(args, "key", strconv.Itoa(c.Key))
+		}
+		return args
+	}
 	args := []string{"link", "add", c.Name, "type", "vxlan", "id", strconv.Itoa(c.VNI)}
 	if c.Remote != "" {
 		args = append(args, "remote", c.Remote)
@@ -110,6 +162,19 @@ func addArgs(c Config) []string {
 func matches(show string, c Config) bool {
 	if strings.TrimSpace(show) == "" {
 		return false
+	}
+	if k := kind(c); k != KindVXLAN {
+		// ip -d prints "link/ipip …" / "link/gre …" plus "<kind> remote <ip>".
+		if !strings.Contains(show, "link/"+k) {
+			return false
+		}
+		if c.Remote != "" && !strings.Contains(show, k+" remote "+c.Remote) {
+			return false
+		}
+		if k == KindGRE && c.Key > 0 && !strings.Contains(show, "key "+strconv.Itoa(c.Key)) {
+			return false
+		}
+		return true
 	}
 	checks := []string{fmt.Sprintf("vxlan id %d ", c.VNI)}
 	if c.Remote != "" {
@@ -198,7 +263,7 @@ func Ensure(c Config) {
 			log.Printf("[vxlan] create %s: %v", c.Name, err)
 			return
 		}
-		log.Printf("[vxlan] created %s (vni %d remote %s)", c.Name, c.VNI, c.Remote)
+		log.Printf("[overlay] created %s (%s, remote %s)", c.Name, kind(c), c.Remote)
 	}
 	if err := ip("link", "set", c.Name, "up"); err != nil {
 		log.Printf("[vxlan] up %s: %v", c.Name, err)

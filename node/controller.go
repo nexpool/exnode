@@ -237,8 +237,10 @@ func overlayConfigs(ifaces []panel.Interface) []overlay.Config {
 			continue
 		}
 		out = append(out, overlay.Config{
+			Kind:      in.VXLAN.Kind,
 			Name:      in.VXLAN.Name,
 			VNI:       in.VXLAN.VNI,
+			Key:       in.VXLAN.Key,
 			Port:      in.VXLAN.Port,
 			Dev:       in.VXLAN.Dev,
 			Local:     in.VXLAN.Local,

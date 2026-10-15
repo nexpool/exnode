@@ -130,11 +130,74 @@ func TestLinkMTU(t *testing.T) {
 		{"explicit mtu wins", Config{MTU: 1400, TunnelMTU: 1420}, 1400},
 		{"auto from the tunnel", Config{TunnelMTU: 1420}, 1370},
 		{"no tunnel mtu -> kernel default", Config{}, 0},
+		{"ipip pays 20 bytes", Config{Kind: KindIPIP, TunnelMTU: 1420}, 1400},
+		{"gre pays 24 bytes", Config{Kind: KindGRE, TunnelMTU: 1420}, 1396},
+		{"explicit mtu still wins for gre", Config{Kind: KindGRE, MTU: 1300, TunnelMTU: 1420}, 1300},
 		{"tunnel smaller than the overhead -> kernel default", Config{TunnelMTU: 40}, 0},
 	}
 	for _, c := range cases {
 		if got := linkMTU(c.cfg); got != c.want {
 			t.Fatalf("%s: linkMTU = %d, want %d", c.name, got, c.want)
 		}
+	}
+}
+
+// ipip/gre are created with "ip tunnel add … mode <kind>"; vxlan keeps its own
+// incantation (and an empty Kind still means vxlan).
+func TestAddArgsTunnelKinds(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+		want []string
+	}{
+		{
+			"ipip",
+			Config{Kind: KindIPIP, Name: "ipip3", Remote: "38.91.117.189", Dev: "enX0"},
+			[]string{"tunnel", "add", "ipip3", "mode", "ipip", "remote", "38.91.117.189", "dev", "enX0"},
+		},
+		{
+			"gre with key",
+			Config{Kind: KindGRE, Name: "gre3", Remote: "38.91.117.189", Key: 7},
+			[]string{"tunnel", "add", "gre3", "mode", "gre", "remote", "38.91.117.189", "key", "7"},
+		},
+		{
+			"ipip ignores the gre key",
+			Config{Kind: KindIPIP, Name: "ipip3", Remote: "1.2.3.4", Key: 7},
+			[]string{"tunnel", "add", "ipip3", "mode", "ipip", "remote", "1.2.3.4"},
+		},
+		{
+			"empty kind is vxlan",
+			Config{Name: "vxlan1133", VNI: 1133},
+			[]string{"link", "add", "vxlan1133", "type", "vxlan", "id", "1133"},
+		},
+	}
+	for _, c := range cases {
+		if got := addArgs(c.cfg); !reflect.DeepEqual(got, c.want) {
+			t.Fatalf("%s: addArgs = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestMatchesTunnelKinds(t *testing.T) {
+	gre := "link/gre 0.0.0.0 brd 0.0.0.0\n    gre remote 38.91.117.189 local 172.31.32.227 ttl inherit key 7"
+	if !matches(gre, Config{Kind: KindGRE, Name: "gre3", Remote: "38.91.117.189", Key: 7}) {
+		t.Fatal("matching gre link must be accepted")
+	}
+	for _, c := range []Config{
+		{Kind: KindGRE, Remote: "1.2.3.4", Key: 7},       // other peer
+		{Kind: KindGRE, Remote: "38.91.117.189", Key: 9}, // other key
+		{Kind: KindIPIP, Remote: "38.91.117.189"},        // other mode
+	} {
+		if matches(gre, c) {
+			t.Fatalf("gre link must not match %+v", c)
+		}
+	}
+
+	ipip := "link/ipip 0.0.0.0 brd 0.0.0.0\n    ipip remote 38.91.117.189 local 172.31.32.227 ttl inherit"
+	if !matches(ipip, Config{Kind: KindIPIP, Remote: "38.91.117.189"}) {
+		t.Fatal("matching ipip link must be accepted")
+	}
+	if matches(ipip, Config{Kind: KindGRE, Remote: "38.91.117.189"}) {
+		t.Fatal("an ipip link must not look like gre")
 	}
 }
