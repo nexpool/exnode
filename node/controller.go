@@ -228,27 +228,35 @@ func (c *Controller) statusTick() {
 	}
 }
 
-// overlayConfigs turns the panel's VXLAN blocks into the links this node must
-// have. The tunnel MTU rides along so the overlay link is sized correctly.
+// overlayConfigs turns the panel's overlay blocks into the links this node must
+// have. A member may carry several tunnels at once (VXLAN, IPIP, GRE); panels
+// that predate the list send the single VXLAN field instead. The tunnel MTU rides
+// along so each overlay link is sized correctly.
 func overlayConfigs(ifaces []panel.Interface) []overlay.Config {
 	var out []overlay.Config
 	for _, in := range ifaces {
-		if in.VXLAN == nil || in.VXLAN.Name == "" {
-			continue
+		tunnels := in.Tunnels
+		if len(tunnels) == 0 && in.VXLAN != nil {
+			tunnels = []panel.VXLAN{*in.VXLAN} // legacy single-tunnel payload
 		}
-		out = append(out, overlay.Config{
-			Kind:      in.VXLAN.Kind,
-			Name:      in.VXLAN.Name,
-			VNI:       in.VXLAN.VNI,
-			Key:       in.VXLAN.Key,
-			Port:      in.VXLAN.Port,
-			Dev:       in.VXLAN.Dev,
-			Local:     in.VXLAN.Local,
-			Remote:    in.VXLAN.Remote,
-			Routes:    in.VXLAN.Routes,
-			MTU:       in.VXLAN.MTU,
-			TunnelMTU: in.MTU,
-		})
+		for _, t := range tunnels {
+			if t.Name == "" {
+				continue
+			}
+			out = append(out, overlay.Config{
+				Kind:      t.Kind,
+				Name:      t.Name,
+				VNI:       t.VNI,
+				Key:       t.Key,
+				Port:      t.Port,
+				Dev:       t.Dev,
+				Local:     t.Local,
+				Remote:    t.Remote,
+				Routes:    t.Routes,
+				MTU:       t.MTU,
+				TunnelMTU: in.MTU,
+			})
+		}
 	}
 	return out
 }

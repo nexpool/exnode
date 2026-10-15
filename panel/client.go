@@ -133,7 +133,10 @@ type Interface struct {
 	NATSubnets      string `json:"nat_subnets"`
 	PolicyRoutes    string `json:"policy_routes"`
 	Peers           []Peer `json:"peers"`
-	VXLAN           *VXLAN `json:"vxlan,omitempty"`
+	// Tunnels are every overlay link this interface needs; VXLAN is the
+	// single-tunnel field of older panels, read only when Tunnels is empty.
+	Tunnels []VXLAN `json:"tunnels,omitempty"`
+	VXLAN   *VXLAN  `json:"vxlan,omitempty"`
 }
 
 type Peer struct {
