@@ -107,7 +107,7 @@ else
       [[ -z "$VERSION" ]] && die "无法获取版本，请用 --version 指定，或用 EXNODE_BIN 提供本地二进制"
     fi
     if [[ "$FORCE" == "no" && -n "$current" && "$current" == "$VERSION" ]]; then
-      agent_state="已是最新 $VERSION，跳过"
+      agent_state="已是最新 ${VERSION}，跳过"
     else
       say "下载 exnode ${VERSION} (${arch})"
       curl -fSL "https://github.com/${REPO}/releases/download/${VERSION}/exnode-linux-${arch}" -o "${BIN}.new" \
@@ -155,7 +155,7 @@ if [[ "$WANT_SINGBOX" == "yes" ]]; then
   [[ -n "$have" ]] && have_ver="$("$have" version 2>/dev/null | head -1 | awk '{print $3}' || true)"
 
   if [[ -n "$have" && -z "$SINGBOX_VERSION" && "$FORCE" == "no" ]]; then
-    singbox_state="已安装${have_ver:+ $have_ver}（$have），跳过"
+    singbox_state="已安装${have_ver:+ $have_ver}（${have}），跳过"
   else
     want="${SINGBOX_VERSION:-}"
     [[ -z "$want" ]] && want="$(github_latest "$SINGBOX_REPO")"
@@ -163,7 +163,7 @@ if [[ "$WANT_SINGBOX" == "yes" ]]; then
       singbox_state="未安装（取不到版本；可 --singbox-version 指定）"
       warn "sing-box：无法从 GitHub 获取版本，内核 WireGuard 不受影响"
     elif [[ "$FORCE" == "no" && -n "$have_ver" && "${want#v}" == "${have_ver#v}" ]]; then
-      singbox_state="已是最新 $want，跳过"
+      singbox_state="已是最新 ${want}，跳过"
     else
       tarball="sing-box-${want#v}-linux-${arch}.tar.gz"
       url="https://github.com/${SINGBOX_REPO}/releases/download/${want}/${tarball}"
@@ -261,9 +261,9 @@ fi
 echo
 say "完成"
 echo "  exnode   : $agent_state"
-echo "  config   : $config_state（$CONFIG_DIR/config.yml）"
+echo "  config   : ${config_state}（$CONFIG_DIR/config.yml）"
 echo "  sing-box : $singbox_state"
-echo "  systemd  : $UNIT $unit_state，已 enable"
+echo "  systemd  : $UNIT ${unit_state}，已 enable"
 if [[ "$config_state" == 已生成* ]]; then
   echo "  下一步   : 编辑 $CONFIG_DIR/config.yml 后执行 exnode start"
 else
