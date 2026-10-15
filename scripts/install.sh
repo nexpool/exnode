@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Install (or repair) the exnode agent on this host: prebuilt binary, config
-# template, systemd unit, an `exnode` management command — plus sing-box, the
-# binary the optional sing-box datapath engine needs.
+# template, systemd unit and an `exnode` management command.
+#
+# sing-box is NOT installed here: the agent fetches it by itself the first time
+# the panel selects the sing-box datapath engine (see the singbox package).
 #
 # Every step is idempotent: running the script again keeps what is already there,
 # skips what is already installed, and only replaces the agent binary when you ask
@@ -9,24 +11,17 @@
 #
 # Usage:
 #   ./install.sh [--version vX.Y.Z] [--api-host URL] [--node-id N] [--secret-key KEY]
-#                [--system] [--singbox | --no-singbox] [--singbox-version vX.Y.Z]
-#                [--force] [--cleanup]
+#                [--system] [--force] [--cleanup]
 #
 #   --version vX.Y.Z      install this exnode release (default: only when nothing
 #                         is installed yet, otherwise keep the current binary)
 #   --system              sing-box TUN mode (System: true)
-#   --singbox             install/upgrade sing-box (default)
-#   --no-singbox          do not touch sing-box
-#   --singbox-version vX  install this sing-box release (an existing sing-box is
-#                         kept unless a version is given or --force is used)
-#   --force               reinstall the agent binary and sing-box even if present
+#   --force               reinstall the agent binary even if it is already there
 #   --cleanup             delete this script after a successful run
 #
 # Env:
 #   EXNODE_REPO      GitHub repo for the agent  (default: nexpool/exnode)
 #   EXNODE_BIN       local exnode binary to install instead of downloading
-#   SINGBOX_REPO     GitHub repo for sing-box   (default: SagerNet/sing-box)
-#   SINGBOX_BIN      where to put it            (default: /usr/local/bin/sing-box)
 set -euo pipefail
 
 red=$'\e[0;31m'; green=$'\e[0;32m'; yellow=$'\e[0;33m'; plain=$'\e[0m'
@@ -36,16 +31,15 @@ warn() { printf '%s警告:%s %s\n' "$yellow" "$plain" "$*"; }
 die()  { printf '%s错误:%s %s\n' "$red" "$plain" "$*" >&2; exit 1; }
 
 REPO="${EXNODE_REPO:-nexpool/exnode}"
-SINGBOX_REPO="${SINGBOX_REPO:-SagerNet/sing-box}"
 INSTALL_DIR=/usr/local/exnode
 CONFIG_DIR=/etc/exnode
 BIN="$INSTALL_DIR/exnode"
-SINGBOX_BIN="${SINGBOX_BIN:-/usr/local/bin/sing-box}"
+SINGBOX_BIN=/usr/local/bin/sing-box
 UNIT=/etc/systemd/system/exnode.service
 CLI=/usr/bin/exnode
 
 VERSION=""; API_HOST=""; NODE_ID=""; SECRET_KEY=""; SYSTEM_TUN="false"
-WANT_SINGBOX="yes"; SINGBOX_VERSION=""; FORCE="no"; CLEANUP="no"
+FORCE="no"; CLEANUP="no"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --version)         VERSION="$2"; shift 2 ;;
@@ -53,9 +47,6 @@ while [[ $# -gt 0 ]]; do
     --node-id)         NODE_ID="$2"; shift 2 ;;
     --secret-key)      SECRET_KEY="$2"; shift 2 ;;
     --system)          SYSTEM_TUN="true"; shift ;;
-    --singbox)         WANT_SINGBOX="yes"; shift ;;
-    --no-singbox)      WANT_SINGBOX="no"; shift ;;
-    --singbox-version) SINGBOX_VERSION="$2"; WANT_SINGBOX="yes"; shift 2 ;;
     --force)           FORCE="yes"; shift ;;
     --cleanup)         CLEANUP="yes"; shift ;;
     -h|--help)         sed -n "2,31p" "$0" | sed -e "s/^# //" -e "s/^#$//"; exit 0 ;;
@@ -145,49 +136,6 @@ EOF
   config_state="已生成（记得填 ApiHost / NodeID / SecretKey）"
 fi
 
-# --- 3. sing-box（尽力而为：内核 WireGuard 不需要它）---
-singbox_state="已跳过（--no-singbox）"
-if [[ "$WANT_SINGBOX" == "yes" ]]; then
-  have=""
-  command -v sing-box >/dev/null 2>&1 && have="$(command -v sing-box)"
-  [[ -x "$SINGBOX_BIN" ]] && have="$SINGBOX_BIN"
-  have_ver=""
-  [[ -n "$have" ]] && have_ver="$("$have" version 2>/dev/null | head -1 | awk '{print $3}' || true)"
-
-  if [[ -n "$have" && -z "$SINGBOX_VERSION" && "$FORCE" == "no" ]]; then
-    singbox_state="已安装${have_ver:+ $have_ver}（${have}），跳过"
-  else
-    want="${SINGBOX_VERSION:-}"
-    [[ -z "$want" ]] && want="$(github_latest "$SINGBOX_REPO")"
-    if [[ -z "$want" ]]; then
-      singbox_state="未安装（取不到版本；可 --singbox-version 指定）"
-      warn "sing-box：无法从 GitHub 获取版本，内核 WireGuard 不受影响"
-    elif [[ "$FORCE" == "no" && -n "$have_ver" && "${want#v}" == "${have_ver#v}" ]]; then
-      singbox_state="已是最新 ${want}，跳过"
-    else
-      tarball="sing-box-${want#v}-linux-${arch}.tar.gz"
-      url="https://github.com/${SINGBOX_REPO}/releases/download/${want}/${tarball}"
-      say "下载 sing-box ${want} (${arch})"
-      tmp="$(mktemp -d)"
-      if curl -fSL "$url" -o "$tmp/$tarball" 2>/dev/null && tar -xzf "$tmp/$tarball" -C "$tmp" 2>/dev/null; then
-        found="$(find "$tmp" -type f -name sing-box | head -1)"
-        if [[ -n "$found" ]]; then
-          mkdir -p "$(dirname "$SINGBOX_BIN")"
-          install -m 0755 "$found" "${SINGBOX_BIN}.new"
-          mv -f "${SINGBOX_BIN}.new" "$SINGBOX_BIN"
-          singbox_state="已安装 $want → $SINGBOX_BIN"
-        else
-          singbox_state="安装失败（包里没有 sing-box）"
-          warn "sing-box：$url 解压后没有 sing-box 可执行文件"
-        fi
-      else
-        singbox_state="安装失败（下载或解压出错）"
-        warn "sing-box：下载失败 $url"
-      fi
-      rm -rf "$tmp"
-    fi
-  fi
-fi
 
 # --- 4. systemd unit（内容变了才写）---
 unit_new="$(mktemp)"
@@ -262,7 +210,6 @@ echo
 say "完成"
 echo "  exnode   : $agent_state"
 echo "  config   : ${config_state}（$CONFIG_DIR/config.yml）"
-echo "  sing-box : $singbox_state"
 echo "  systemd  : $UNIT ${unit_state}，已 enable"
 if [[ "$config_state" == 已生成* ]]; then
   echo "  下一步   : 编辑 $CONFIG_DIR/config.yml 后执行 exnode start"
