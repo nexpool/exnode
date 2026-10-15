@@ -247,8 +247,20 @@ func showAddr(name string) string {
 }
 
 // Ensure creates or updates one overlay link and assigns its address.
+// applicable reports whether a link is worth building: a name and an address
+// always, plus a VNI for VXLAN (ipip/gre have no VNI, the panel sends 0).
+func applicable(c Config) bool {
+	if c.Name == "" || strings.TrimSpace(c.Local) == "" {
+		return false
+	}
+	if kind(c) == KindVXLAN && c.VNI < 1 {
+		return false
+	}
+	return true
+}
+
 func Ensure(c Config) {
-	if c.Name == "" || c.VNI < 1 || strings.TrimSpace(c.Local) == "" {
+	if !applicable(c) {
 		return
 	}
 

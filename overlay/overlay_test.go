@@ -142,6 +142,27 @@ func TestLinkMTU(t *testing.T) {
 	}
 }
 
+// ipip/gre have no VNI, so the link is applicable with vni 0; VXLAN still
+// requires one.
+func TestApplicable(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+		want bool
+	}{
+		{"ipip without a vni", Config{Kind: KindIPIP, Name: "ipip7", Local: "10.1.14.1/30"}, true},
+		{"gre without a vni", Config{Kind: KindGRE, Name: "gre7", Local: "10.1.14.1/30"}, true},
+		{"vxlan needs a vni", Config{Name: "vxlan1144", Local: "10.1.14.1/30"}, false},
+		{"vxlan with a vni", Config{Name: "vxlan1144", VNI: 1144, Local: "10.1.14.1/30"}, true},
+		{"no address", Config{Kind: KindIPIP, Name: "ipip7"}, false},
+	}
+	for _, c := range cases {
+		if got := applicable(c.cfg); got != c.want {
+			t.Fatalf("%s: applicable = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 // ipip/gre are created with "ip tunnel add … mode <kind>"; vxlan keeps its own
 // incantation (and an empty Kind still means vxlan).
 func TestAddArgsTunnelKinds(t *testing.T) {
