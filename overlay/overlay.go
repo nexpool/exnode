@@ -256,21 +256,21 @@ func Ensure(c Config) {
 	if !matches(show, c) {
 		if strings.TrimSpace(show) != "" {
 			if err := ip("link", "del", c.Name); err != nil {
-				log.Printf("[vxlan] delete stale %s: %v", c.Name, err)
+				log.Printf("[overlay] delete stale %s: %v", c.Name, err)
 			}
 		}
 		if err := ip(addArgs(c)...); err != nil {
-			log.Printf("[vxlan] create %s: %v", c.Name, err)
+			log.Printf("[overlay] create %s: %v", c.Name, err)
 			return
 		}
 		log.Printf("[overlay] created %s (%s, remote %s)", c.Name, kind(c), c.Remote)
 	}
 	if err := ip("link", "set", c.Name, "up"); err != nil {
-		log.Printf("[vxlan] up %s: %v", c.Name, err)
+		log.Printf("[overlay] up %s: %v", c.Name, err)
 	}
 	if mtu := linkMTU(c); mtu > 0 {
 		if err := ip("link", "set", c.Name, "mtu", strconv.Itoa(mtu)); err != nil {
-			log.Printf("[vxlan] mtu %s: %v", c.Name, err)
+			log.Printf("[overlay] mtu %s: %v", c.Name, err)
 		}
 	}
 	// Only touch addresses when they differ: flushing on every sync would drop
@@ -278,14 +278,14 @@ func Ensure(c Config) {
 	if !strings.Contains(showAddr(c.Name), " "+c.Local+" ") {
 		_ = ip("addr", "flush", "dev", c.Name)
 		if err := ip("addr", "add", c.Local, "dev", c.Name); err != nil {
-			log.Printf("[vxlan] addr %s: %v", c.Name, err)
+			log.Printf("[overlay] addr %s: %v", c.Name, err)
 		}
 	}
 	// Routes through the overlay (e.g. the LAN behind the peer). "route replace"
 	// is idempotent, so repeating a sync never duplicates or flaps them.
 	for _, r := range c.Routes {
 		if err := ip(routeArgs(r)...); err != nil {
-			log.Printf("[vxlan] route %q: %v", r, err)
+			log.Printf("[overlay] route %q: %v", r, err)
 		}
 	}
 }
@@ -296,7 +296,7 @@ func Remove(name string) {
 		return
 	}
 	if err := ip("link", "del", name); err != nil {
-		log.Printf("[vxlan] remove %s: %v", name, err)
+		log.Printf("[overlay] remove %s: %v", name, err)
 	}
 }
 
@@ -308,7 +308,7 @@ func Reconcile(prev, next []Config) {
 	}
 	for _, spec := range staleRoutes(prev, next) {
 		if err := ip(routeDelArgs(spec)...); err != nil {
-			log.Printf("[vxlan] remove route %q: %v", spec, err)
+			log.Printf("[overlay] remove route %q: %v", spec, err)
 		}
 	}
 	for _, c := range ensure {
