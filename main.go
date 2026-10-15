@@ -59,7 +59,13 @@ func main() {
 	keyFlag := flag.String("k", "", "AES passphrase for an encrypted config (overrides EXNODE_KEY)")
 	encrypt := flag.Bool("encrypt", false, "encrypt the -c config file in place and exit")
 	decrypt := flag.Bool("decrypt", false, "decrypt the -c config to stdout and exit")
+	showVersion := flag.Bool("version", false, "print the agent version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	passphrase := *keyFlag
 	if passphrase == "" {

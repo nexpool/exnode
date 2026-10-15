@@ -78,14 +78,29 @@ sudo bash scripts/install.sh \
   --api-host https://panel.example.com --node-id 1 --secret-key <secret-from-panel>
 ```
 
-Options: `--version vX.Y.Z` (default: latest release), `--system` (sing-box
-system-tun mode). To install a binary you built yourself instead of downloading:
+The script is **idempotent**: re-running it keeps the config, skips what is already
+installed and only replaces the agent binary when you ask for another version. It also
+installs **sing-box** (the binary the optional sing-box engine needs) into
+`/usr/local/bin/sing-box`.
+
+Options:
+
+| Option | Effect |
+| --- | --- |
+| `--version vX.Y.Z` | install this agent release (default: only when nothing is installed) |
+| `--system` | sing-box system-tun mode |
+| `--singbox` / `--no-singbox` | install (default) or leave sing-box alone |
+| `--singbox-version vX.Y.Z` | install/upgrade sing-box to this release |
+| `--force` | reinstall the agent binary and sing-box even if present |
+| `--cleanup` | delete the script after a successful run |
+
+To install a binary you built yourself instead of downloading:
 `sudo EXNODE_BIN=./exnode bash scripts/install.sh`.
 
 It also installs an `exnode` management command:
 
 ```bash
-exnode start | stop | restart | status | log | update | uninstall | config
+exnode start | stop | restart | status | log | version | update | uninstall | config
 ```
 
 ## Build from source (optional)
