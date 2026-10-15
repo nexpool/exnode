@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/nexpool/exnode/singbox"
 	"github.com/nexpool/exnode/wg"
 )
 
@@ -180,7 +181,11 @@ func (e *SingboxEngine) restartLocked() error {
 	if err := e.stopLocked(); err != nil {
 		return err
 	}
-	cmd := exec.Command(e.cfg.BinPath, "run", "-c", e.cfg.ConfigPath)
+	bin, err := e.resolveBinLocked()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(bin, "run", "-c", e.cfg.ConfigPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
@@ -199,6 +204,22 @@ func (e *SingboxEngine) restartLocked() error {
 		e.mu.Unlock()
 	}()
 	return nil
+}
+
+// resolveBinLocked returns a runnable sing-box, installing one on demand: the
+// panel can switch this node to the sing-box engine without the operator having
+// installed the binary first. A failed install is reported (and retried only
+// after a cooldown, see singbox.Ensure).
+func (e *SingboxEngine) resolveBinLocked() (string, error) {
+	if path, ok := singbox.Usable(e.cfg.BinPath); ok {
+		return path, nil
+	}
+	path, err := singbox.Ensure(e.cfg.BinPath, singbox.Options{})
+	if err != nil {
+		return "", fmt.Errorf("sing-box 不可用（%q），自动安装失败: %w", e.cfg.BinPath, err)
+	}
+	e.cfg.BinPath = path // remember it for the next restart
+	return path, nil
 }
 
 func (e *SingboxEngine) stopLocked() error {

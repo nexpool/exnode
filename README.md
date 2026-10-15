@@ -44,9 +44,13 @@ picks `singbox`.
 
 - **kernel engine**: Linux with the WireGuard kernel module
   (`modprobe wireguard`), `CAP_NET_ADMIN`/root, and `iptables` for masquerade.
-- **singbox engine**: a `sing-box` binary on the host (≥ the version with the
-  `wireguard` endpoint). gVisor mode needs no kernel module; `System: true`
-  needs `CAP_NET_ADMIN` + `iptables`.
+- **singbox engine**: a `sing-box` binary (≥ the release with the `wireguard`
+  endpoint). **The agent installs it on demand** — when the panel selects this
+  engine and no `sing-box` is on `PATH` (or at `Engine.Singbox.BinPath`), the
+  agent downloads the latest release into `/usr/local/bin/sing-box` itself
+  (throttled: a failed download is retried after 10 minutes). `SINGBOX_REPO` /
+  `SINGBOX_VERSION` override the source. gVisor mode needs no kernel module;
+  `System: true` needs `CAP_NET_ADMIN` + `iptables`.
 
 ## Configure
 
