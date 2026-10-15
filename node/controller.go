@@ -178,17 +178,25 @@ func (c *Controller) sync() {
 	eng := c.engine
 	c.mu.Unlock()
 
-	if err := eng.Apply(desired); err != nil {
-		log.Printf("[%s] apply failed: %v", host, err)
+	// The datapath engine and the overlay links are independent: a failing
+	// engine (e.g. sing-box without its binary) must not stop VXLAN/IPIP/GRE
+	// links from being built. The revision only advances when everything is
+	// healthy, so the engine is retried on the next heartbeat.
+	applyErr := eng.Apply(desired)
+	nextVXLAN := overlayConfigs(resp.Interfaces)
+	c.mu.Lock()
+	c.vxlan = nextVXLAN
+	c.mu.Unlock()
+	overlay.Reconcile(prevVXLAN, nextVXLAN)
+	if applyErr != nil {
+		log.Printf("[%s] engine apply failed (overlay links still applied): %v", host, applyErr)
 		return
 	}
 
-	nextVXLAN := overlayConfigs(resp.Interfaces)
 	c.mu.Lock()
 	c.revision = resp.ConfigRevision
 	c.revKnown = true
 	c.desired = desired
-	c.vxlan = nextVXLAN
 	c.mu.Unlock()
 
 	// Overlay links ride on top of the tunnel, so they are converged once the
