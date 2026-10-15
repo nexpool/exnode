@@ -31,9 +31,20 @@ const upgradeHTTPTimeout = 5 * time.Minute
 // binary (the real agent is ~20 MB).
 const minBinarySize = 1 << 20
 
+// retryAfter throttles upgrade attempts after a failure: the panel re-sends the
+// directive on every heartbeat (15s), which would otherwise hammer an unreachable
+// download URL and flood the log.
+const retryAfter = 5 * time.Minute
+
 // upgrading guards the process-wide replacement: one upgrade replaces every
 // controller, so only the first order is acted on.
-var upgrading atomic.Bool
+var (
+	upgrading atomic.Bool
+
+	attemptMu      sync.Mutex
+	lastAttempt    time.Time
+	attemptVersion string
+)
 
 var (
 	upgradeErrMu sync.Mutex
@@ -77,8 +88,21 @@ func Maybe(order *Order, current string) {
 	if !upgrading.CompareAndSwap(false, true) {
 		return // another controller already started the upgrade
 	}
+	defer upgrading.Store(false)
+
+	attemptMu.Lock()
+	if order.Version != attemptVersion { // a new version starts with a clean slate
+		attemptVersion = order.Version
+		lastAttempt = time.Time{}
+	}
+	tooSoon := !lastAttempt.IsZero() && time.Since(lastAttempt) < retryAfter
+	lastAttempt = time.Now()
+	attemptMu.Unlock()
+	if tooSoon {
+		return // keep reporting the previous error, retry after the cooldown
+	}
+
 	if err := selfUpgrade(order); err != nil {
-		upgrading.Store(false) // allow a retry on a later heartbeat
 		setUpgradeError("upgrade to %s failed: %v", order.Version, err)
 	}
 }
