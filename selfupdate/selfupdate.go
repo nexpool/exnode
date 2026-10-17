@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -130,17 +131,25 @@ func selfUpgrade(order *Order) error {
 	if err := os.Chmod(tmp, 0o755); err != nil {
 		return fmt.Errorf("chmod download: %w", err)
 	}
+	// Prove the new binary actually runs before touching the working one: a wrong
+	// architecture, a truncated file or a noexec mount would otherwise leave the
+	// node without a usable agent (and there may be nothing to restart it).
+	if out, err := exec.Command(tmp, "-version").CombinedOutput(); err != nil {
+		return fmt.Errorf("downloaded binary does not run: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
 	if err := os.Rename(tmp, exe); err != nil {
 		return fmt.Errorf("replace %s: %w", exe, err)
 	}
 	log.Printf("self-upgrade: %s installed, restarting", order.Version)
 
-	// Re-exec in place: same PID, new binary, no dependency on systemd. If the
-	// exec fails the new binary is already on disk, so exit non-zero and let the
-	// unit's Restart=on-failure bring it back.
+	// Re-exec in place: same PID, new binary, no dependency on systemd. When that
+	// fails we must NOT exit: this agent may have no supervisor at all (no systemd
+	// unit, no container restart policy), and a dead agent is far worse than a
+	// stale one. Keep running the current image, report the failure, and let the
+	// next restart pick up the new binary from disk.
 	if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
-		log.Printf("self-upgrade: exec %s failed: %v (exiting for a supervised restart)", exe, err)
-		os.Exit(1)
+		log.Printf("self-upgrade: exec %s failed: %v (keeping the running agent)", exe, err)
+		return fmt.Errorf("exec %s: %w", exe, err)
 	}
 	return nil
 }
