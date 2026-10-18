@@ -171,6 +171,17 @@ func matches(show string, c Config) bool {
 		if c.Remote != "" && !strings.Contains(show, k+" remote "+c.Remote) {
 			return false
 		}
+		// A tunnel pinned to an underlay NIC must have picked that NIC's address
+		// as its source; "local any" means the link was built before the device
+		// was configured, so recreate it instead of reusing it.
+		if c.Dev != "" {
+			if strings.Contains(show, "local any") {
+				return false
+			}
+			if strings.Contains(show, "dev ") && !strings.Contains(show, "dev "+c.Dev) {
+				return false
+			}
+		}
 		if k == KindGRE && c.Key > 0 && !strings.Contains(show, "key "+strconv.Itoa(c.Key)) {
 			return false
 		}

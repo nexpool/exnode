@@ -163,6 +163,25 @@ func TestApplicable(t *testing.T) {
 	}
 }
 
+// Adding the underlay NIC later must recreate the tunnel: a link whose source
+// is still "local any" would keep sending from the wrong address.
+func TestMatchesTunnelDev(t *testing.T) {
+	anyLocal := "link/ipip 0.0.0.0 brd 0.0.0.0\n    ipip remote 38.91.117.189 local any ttl inherit"
+	pinned := "link/ipip 0.0.0.0 brd 0.0.0.0\n    ipip remote 38.91.117.189 local 15.235.143.151 dev ens3 ttl inherit"
+	if matches(anyLocal, Config{Kind: KindIPIP, Remote: "38.91.117.189", Dev: "ens3"}) {
+		t.Fatal("a tunnel with local any must be recreated once a dev is configured")
+	}
+	if !matches(pinned, Config{Kind: KindIPIP, Remote: "38.91.117.189", Dev: "ens3"}) {
+		t.Fatal("a tunnel pinned to the right dev must be reused")
+	}
+	if matches(pinned, Config{Kind: KindIPIP, Remote: "38.91.117.189", Dev: "ens4"}) {
+		t.Fatal("a tunnel pinned to another dev must be recreated")
+	}
+	if !matches(anyLocal, Config{Kind: KindIPIP, Remote: "38.91.117.189"}) {
+		t.Fatal("without a dev the kernel picks the source, so the link still matches")
+	}
+}
+
 // ipip/gre are created with "ip tunnel add … mode <kind>"; vxlan keeps its own
 // incantation (and an empty Kind still means vxlan).
 func TestAddArgsTunnelKinds(t *testing.T) {
