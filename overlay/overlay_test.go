@@ -214,6 +214,34 @@ func TestFwSpecs(t *testing.T) {
 	}
 }
 
+// An explicitly pinned underlay address is passed to ip and compared on match.
+func TestAddArgsLocalIP(t *testing.T) {
+	got := addArgs(Config{Kind: KindIPIP, Name: "ipip7", Remote: "38.91.117.189", LocalIP: "15.235.143.151"})
+	want := []string{"tunnel", "add", "ipip7", "mode", "ipip", "remote", "38.91.117.189", "local", "15.235.143.151"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("addArgs = %v, want %v", got, want)
+	}
+	gre := addArgs(Config{Kind: KindGRE, Name: "gre7", Remote: "38.91.117.189", LocalIP: "15.235.143.151", Key: 2})
+	if !strings.Contains(strings.Join(gre, " "), "local 15.235.143.151") {
+		t.Fatalf("gre addArgs lost the local address: %v", gre)
+	}
+	vx := addArgs(Config{Name: "vxlan1", VNI: 1144, LocalIP: "15.235.143.151"})
+	if !strings.Contains(strings.Join(vx, " "), "local 15.235.143.151") {
+		t.Fatalf("vxlan addArgs lost the local address: %v", vx)
+	}
+}
+
+// A pinned local must match the link, or the link is rebuilt.
+func TestMatchesLocalIP(t *testing.T) {
+	show := "link/ipip 0.0.0.0 brd 0.0.0.0\n    ipip remote 38.91.117.189 local 15.235.143.151 dev ens3 ttl inherit"
+	if !matches(show, Config{Kind: KindIPIP, Remote: "38.91.117.189", LocalIP: "15.235.143.151"}) {
+		t.Fatal("matching local address must be accepted")
+	}
+	if matches(show, Config{Kind: KindIPIP, Remote: "38.91.117.189", LocalIP: "10.1.2.134"}) {
+		t.Fatal("a different local address must force a rebuild")
+	}
+}
+
 // ipip/gre are created with "ip tunnel add … mode <kind>"; vxlan keeps its own
 // incantation (and an empty Kind still means vxlan).
 func TestAddArgsTunnelKinds(t *testing.T) {

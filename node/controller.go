@@ -296,6 +296,7 @@ func overlayConfigs(ifaces []panel.Interface) []overlay.Config {
 				Port:      t.Port,
 				Dev:       t.Dev,
 				Local:     t.Local,
+				LocalIP:   t.LocalIP,
 				Remote:    t.Remote,
 				Routes:    t.Routes,
 				MTU:       t.MTU,

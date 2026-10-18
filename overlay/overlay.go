@@ -34,14 +34,17 @@ const (
 // Config is one overlay link the panel wants on this node.
 type Config struct {
 	// Kind is KindVXLAN (default), KindIPIP or KindGRE.
-	Kind   string
-	Name   string // link name, e.g. vxlan3002 / gre3 / ipip3
-	VNI    int    // VXLAN network identifier
-	Port   int    // VXLAN UDP destination port
-	Key    int    // GRE key (0 = none)
-	Dev    string // optional underlay NIC
-	Local  string // address assigned to the link (CIDR)
-	Remote string // peer address (VTEP for VXLAN, tunnel endpoint for ipip/gre)
+	Kind string
+	Name string // link name, e.g. vxlan3002 / gre3 / ipip3
+	VNI  int    // VXLAN network identifier
+	Port int    // VXLAN UDP destination port
+	Key  int    // GRE key (0 = none)
+	// LocalIP pins the tunnel's underlay (source) address; empty lets the kernel
+	// pick it from the route to Remote.
+	LocalIP string
+	Dev     string // optional underlay NIC
+	Local   string // address assigned to the link (CIDR)
+	Remote  string // peer address (VTEP for VXLAN, tunnel endpoint for ipip/gre)
 	// MTU overrides the link MTU. 0 = derive it from TunnelMTU.
 	MTU int
 	// TunnelMTU is the MTU of the tunnel this link rides on (0 = leave the kernel
@@ -151,6 +154,9 @@ func addArgs(c Config) []string {
 		if c.Remote != "" {
 			args = append(args, "remote", c.Remote)
 		}
+		if c.LocalIP != "" {
+			args = append(args, "local", c.LocalIP)
+		}
 		if c.Dev != "" {
 			args = append(args, "dev", c.Dev)
 		}
@@ -160,6 +166,9 @@ func addArgs(c Config) []string {
 		return args
 	}
 	args := []string{"link", "add", c.Name, "type", "vxlan", "id", strconv.Itoa(c.VNI)}
+	if c.LocalIP != "" {
+		args = append(args, "local", c.LocalIP)
+	}
 	if c.Remote != "" {
 		args = append(args, "remote", c.Remote)
 	}
@@ -189,6 +198,9 @@ func matches(show string, c Config) bool {
 		// A tunnel pinned to an underlay NIC must have picked that NIC's address
 		// as its source; "local any" means the link was built before the device
 		// was configured, so recreate it instead of reusing it.
+		if c.LocalIP != "" && !strings.Contains(show, "local "+c.LocalIP) {
+			return false
+		}
 		if c.Dev != "" {
 			if strings.Contains(show, "local any") {
 				return false
@@ -211,6 +223,9 @@ func matches(show string, c Config) bool {
 	}
 	if c.Dev != "" {
 		checks = append(checks, "dev "+c.Dev)
+	}
+	if c.LocalIP != "" {
+		checks = append(checks, "local "+c.LocalIP)
 	}
 	for _, want := range checks {
 		if !strings.Contains(show, want) {

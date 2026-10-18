@@ -115,7 +115,9 @@ type VXLAN struct {
 	VNI  int    `json:"vni"`
 	Port int    `json:"port"`
 	// Key is the GRE key (0 = none).
-	Key int `json:"key,omitempty"`
+	// LocalIP pins the tunnel's underlay (source) address; empty = kernel choice.
+	LocalIP string `json:"local_ip,omitempty"`
+	Key     int    `json:"key,omitempty"`
 	// MTU overrides the link MTU; 0 = derive it from the tunnel MTU.
 	MTU    int    `json:"mtu,omitempty"`
 	Dev    string `json:"dev,omitempty"`
