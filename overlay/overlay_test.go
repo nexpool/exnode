@@ -182,6 +182,21 @@ func TestMatchesTunnelDev(t *testing.T) {
 	}
 }
 
+func TestRouteDev(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"default via 15.235.143.1 dev ens3 proto dhcp src 15.235.143.151 metric 100", "ens3"},
+		{"8.8.8.8 via 10.0.0.1 dev eth0 src 10.0.0.5 uid 0", "eth0"},
+		{"default dev wg0 scope link", "wg0"},
+		{"", ""},
+		{"default via 192.168.1.1 proto static", ""},
+	}
+	for _, c := range cases {
+		if got := RouteDev(c.in); got != c.want {
+			t.Fatalf("RouteDev(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // ipip/gre are created with "ip tunnel add … mode <kind>"; vxlan keeps its own
 // incantation (and an empty Kind still means vxlan).
 func TestAddArgsTunnelKinds(t *testing.T) {

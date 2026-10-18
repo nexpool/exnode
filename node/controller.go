@@ -6,6 +6,7 @@ package node
 import (
 	"context"
 	"log"
+	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
@@ -28,6 +29,9 @@ type Controller struct {
 	statEvery time.Duration
 	version   string
 	osName    string
+	// primaryIf is the default-route NIC, reported to the panel so tunnel
+	// underlay devices can be prefilled instead of looked up by hand.
+	primaryIf string
 
 	mu         sync.Mutex
 	engine     engine.Engine
@@ -53,6 +57,7 @@ func NewController(p conf.PanelConfig, singbox engine.SingboxConfig, version, os
 		statEvery: p.StatusInterval(),
 		version:   version,
 		osName:    osName,
+		primaryIf: primaryInterface(),
 	}
 }
 
@@ -128,16 +133,33 @@ func (c *Controller) ensureEngine(engineType string) {
 	log.Printf("[%s] datapath engine: %s", c.client.Label(), engineType)
 }
 
+// primaryInterface is the NIC the default route leaves through ("" when the
+// host has no default route).
+func primaryInterface() string {
+	out, err := exec.Command("ip", "-4", "route", "show", "default").Output()
+	if err == nil {
+		if dev := overlay.RouteDev(string(out)); dev != "" {
+			return dev
+		}
+	}
+	out, err = exec.Command("ip", "-4", "route", "get", "1.1.1.1").Output()
+	if err == nil {
+		return overlay.RouteDev(string(out))
+	}
+	return ""
+}
+
 // heartbeatTick checks in and, when the revision changed (or force), re-syncs.
 // A pending self-upgrade order is acted on before the sync: on success the
 // process is replaced and this loop never continues.
 func (c *Controller) heartbeatTick(force bool) {
 	host := c.client.Label()
 	resp, err := c.client.Heartbeat(panel.HeartbeatRequest{
-		AgentVersion: c.version,
-		OS:           c.osName,
-		Arch:         runtime.GOARCH,
-		UpgradeError: selfupdate.PendingError(),
+		AgentVersion:     c.version,
+		OS:               c.osName,
+		Arch:             runtime.GOARCH,
+		UpgradeError:     selfupdate.PendingError(),
+		PrimaryInterface: c.primaryIf,
 	})
 	if err != nil {
 		log.Printf("[%s] heartbeat failed: %v", host, err)

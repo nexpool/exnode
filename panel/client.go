@@ -84,6 +84,9 @@ type HeartbeatRequest struct {
 	// UpgradeError reports why the last self-upgrade attempt failed (empty when
 	// there is nothing to report).
 	UpgradeError string `json:"upgrade_error,omitempty"`
+	// PrimaryInterface is the node's default-route NIC, so the panel can propose
+	// the right underlay device for tunnels instead of asking the operator.
+	PrimaryInterface string `json:"primary_interface,omitempty"`
 }
 
 // UpgradeDirective is a self-upgrade order from the panel: download URL, replace

@@ -125,6 +125,20 @@ func kind(c Config) string {
 	}
 }
 
+// RouteDev pulls the "dev <name>" interface out of ip route output, e.g.
+// "default via 15.235.143.1 dev ens3 proto dhcp src 15.235.143.151" -> ens3.
+// The controller reports this node's default-route NIC to the panel, which
+// prefills the tunnel underlay device with it.
+func RouteDev(text string) string {
+	fields := strings.Fields(text)
+	for i, f := range fields {
+		if f == "dev" && i+1 < len(fields) {
+			return fields[i+1]
+		}
+	}
+	return ""
+}
+
 // addArgs builds the argv that creates the link:
 //
 //	vxlan: ip link add vxlan3002 type vxlan id 3002 remote … dstport … dev …
