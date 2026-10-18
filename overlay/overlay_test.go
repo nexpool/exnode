@@ -197,6 +197,23 @@ func TestRouteDev(t *testing.T) {
 	}
 }
 
+// Every tunnel needs the encapsulation protocols and its own link allowed in.
+func TestFwSpecs(t *testing.T) {
+	specs := fwSpecs(Config{Name: "ipip7"})
+	if len(specs) != 3 {
+		t.Fatalf("got %d specs, want 3: %v", len(specs), specs)
+	}
+	if specs[0][1] != "4" || specs[1][1] != "47" {
+		t.Fatalf("protocol rules wrong: %v", specs[:2])
+	}
+	if specs[2][0] != "-i" || specs[2][1] != "ipip7" {
+		t.Fatalf("link rule wrong: %v", specs[2])
+	}
+	if len(fwSpecs(Config{})) != 2 {
+		t.Fatal("an unnamed config must not add a link rule")
+	}
+}
+
 // ipip/gre are created with "ip tunnel add … mode <kind>"; vxlan keeps its own
 // incantation (and an empty Kind still means vxlan).
 func TestAddArgsTunnelKinds(t *testing.T) {

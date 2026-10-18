@@ -14,6 +14,7 @@ package overlay
 import (
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -271,6 +272,67 @@ func showAddr(name string) string {
 	return string(out)
 }
 
+// fwSpecs are the INPUT match specs a tunnel needs: the encapsulation protocols
+// (ipip = 4, gre = 47) and the link itself. Without them a host whose firewall
+// only accepts established/related silently drops the peer's packets: the
+// tunnel then only works in the direction that was dialled last.
+func fwSpecs(c Config) [][]string {
+	specs := [][]string{{"-p", "4"}, {"-p", "47"}}
+	if c.Name != "" {
+		specs = append(specs, []string{"-i", c.Name})
+	}
+	return specs
+}
+
+// firewallAllow opens the host firewall for one tunnel. Best effort: a host
+// without iptables still gets a working tunnel, we only log the rejection.
+func firewallAllow(c Config) {
+	for _, spec := range fwSpecs(c) {
+		check := append([]string{"-C", "INPUT"}, spec...)
+		if exec.Command("iptables", check...).Run() == nil {
+			continue // already allowed
+		}
+		args := append([]string{"-I", "INPUT"}, spec...)
+		args = append(args, "-j", "ACCEPT")
+		if out, err := exec.Command("iptables", args...).CombinedOutput(); err != nil {
+			log.Printf("[overlay] firewall allow %v: %v (%s)", spec, err, strings.TrimSpace(string(out)))
+		}
+	}
+}
+
+// firewallForget drops the link-specific rule of a removed tunnel.
+func firewallForget(name string) {
+	if name == "" {
+		return
+	}
+	for i := 0; i < 8; i++ {
+		args := []string{"-D", "INPUT", "-i", name, "-j", "ACCEPT"}
+		if err := exec.Command("iptables", args...).Run(); err != nil {
+			return // no more copies
+		}
+	}
+}
+
+// relaxRPFilter turns reverse-path filtering down to loose mode for the tunnel
+// link (strict mode drops packets that arrive on a tunnel whose reverse route
+// looks asymmetric). The kernel takes the maximum of all/rp_filter and the
+// per-device value, so a global 1 is relaxed too.
+func relaxRPFilter(name string) {
+	if name == "" {
+		return
+	}
+	write := func(path, why string) {
+		if err := os.WriteFile(path, []byte("2\n"), 0o644); err != nil {
+			log.Printf("[overlay] rp_filter %s (%s): %v", path, why, err)
+		}
+	}
+	all := "/proc/sys/net/ipv4/conf/all/rp_filter"
+	if b, err := os.ReadFile(all); err == nil && strings.TrimSpace(string(b)) == "1" {
+		write(all, "global strict mode drops tunnel packets")
+	}
+	write("/proc/sys/net/ipv4/conf/"+name+"/rp_filter", "tunnel link")
+}
+
 // Ensure creates or updates one overlay link and assigns its address.
 // applicable reports whether a link is worth building: a name and an address
 // always, plus a VNI for VXLAN (ipip/gre have no VNI, the panel sends 0).
@@ -305,6 +367,10 @@ func Ensure(c Config) {
 	if err := ip("link", "set", c.Name, "up"); err != nil {
 		log.Printf("[overlay] up %s: %v", c.Name, err)
 	}
+	// The link exists now: make sure the host firewall lets the peer in and
+	// that reverse-path filtering does not silently drop its packets.
+	relaxRPFilter(c.Name)
+	firewallAllow(c)
 	if mtu := linkMTU(c); mtu > 0 {
 		if err := ip("link", "set", c.Name, "mtu", strconv.Itoa(mtu)); err != nil {
 			log.Printf("[overlay] mtu %s: %v", c.Name, err)
@@ -332,6 +398,7 @@ func Remove(name string) {
 	if name == "" {
 		return
 	}
+	firewallForget(name)
 	if err := ip("link", "del", name); err != nil {
 		log.Printf("[overlay] remove %s: %v", name, err)
 	}
