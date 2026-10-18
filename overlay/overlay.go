@@ -288,7 +288,7 @@ func fwSpecs(c Config) [][]string {
 // without iptables still gets a working tunnel, we only log the rejection.
 func firewallAllow(c Config) {
 	for _, spec := range fwSpecs(c) {
-		check := append([]string{"-C", "INPUT"}, spec...)
+		check := append(append([]string{"-C", "INPUT"}, spec...), "-j", "ACCEPT")
 		if exec.Command("iptables", check...).Run() == nil {
 			continue // already allowed
 		}
