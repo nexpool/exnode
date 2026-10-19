@@ -256,6 +256,28 @@ func TestForwardSpecs(t *testing.T) {
 	}
 }
 
+// Only the specs this package owns are deduplicated: protocol rules plus one
+// per-link rule in each direction.
+func TestManagedRules(t *testing.T) {
+	links := []Config{{Name: "ipip7"}}
+	in := managedInputRules(links)
+	for _, spec := range []string{"-p 4 -j ACCEPT", "-p 47 -j ACCEPT", "-i ipip7 -j ACCEPT"} {
+		if _, ok := in[spec]; !ok {
+			t.Fatalf("missing INPUT spec %q in %v", spec, in)
+		}
+	}
+	if len(in) != 3 {
+		t.Fatalf("unexpected INPUT specs: %v", in)
+	}
+	fw := managedForwardRules(links)
+	if len(fw) != 2 {
+		t.Fatalf("expected two FORWARD specs, got %v", fw)
+	}
+	if _, ok := fw["-o ipip7 -j ACCEPT"]; !ok {
+		t.Fatalf("missing return direction in %v", fw)
+	}
+}
+
 // ipip/gre are created with "ip tunnel add … mode <kind>"; vxlan keeps its own
 // incantation (and an empty Kind still means vxlan).
 func TestAddArgsTunnelKinds(t *testing.T) {
