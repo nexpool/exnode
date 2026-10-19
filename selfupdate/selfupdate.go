@@ -197,7 +197,7 @@ type Order struct {
 // Maybe acts on an upgrade order. On success the process is replaced and this
 // never returns; on failure the error is kept for the next heartbeat.
 func Maybe(order *Order, current string) {
-	if order == nil || order.Version == "" || order.Version == current {
+	if order == nil || strings.TrimSpace(order.Version) == "" || !newerVersion(order.Version, current) {
 		return
 	}
 	if strings.TrimSpace(order.URL) == "" {
