@@ -6,6 +6,7 @@ package node
 import (
 	"context"
 	"log"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -29,6 +30,8 @@ type Controller struct {
 	statEvery time.Duration
 	version   string
 	osName    string
+	// binaryPath is the executable this process runs from.
+	binaryPath string
 	// primaryIf is the default-route NIC, reported to the panel so tunnel
 	// underlay devices can be prefilled instead of looked up by hand.
 	primaryIf string
@@ -51,13 +54,14 @@ const policyWatchdogEvery = 30 * time.Second
 // the sing-box engine.
 func NewController(p conf.PanelConfig, singbox engine.SingboxConfig, version, osName string) *Controller {
 	return &Controller{
-		client:    panel.New(p.ApiHost, p.NodeID, p.SecretKey, p.HTTPTimeout()),
-		singbox:   singbox,
-		hbEvery:   p.HeartbeatInterval(),
-		statEvery: p.StatusInterval(),
-		version:   version,
-		osName:    osName,
-		primaryIf: primaryInterface(),
+		client:     panel.New(p.ApiHost, p.NodeID, p.SecretKey, p.HTTPTimeout()),
+		singbox:    singbox,
+		hbEvery:    p.HeartbeatInterval(),
+		statEvery:  p.StatusInterval(),
+		version:    version,
+		osName:     osName,
+		primaryIf:  primaryInterface(),
+		binaryPath: selfPath(),
 	}
 }
 
@@ -133,6 +137,15 @@ func (c *Controller) ensureEngine(engineType string) {
 	log.Printf("[%s] datapath engine: %s", c.client.Label(), engineType)
 }
 
+// selfPath is the executable this process runs from ("" when unknown).
+func selfPath() string {
+	p, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
 // primaryInterface is the NIC the default route leaves through ("" when the
 // host has no default route).
 func primaryInterface() string {
@@ -160,6 +173,7 @@ func (c *Controller) heartbeatTick(force bool) {
 		Arch:             runtime.GOARCH,
 		UpgradeError:     selfupdate.PendingError(),
 		PrimaryInterface: c.primaryIf,
+		BinaryPath:       c.binaryPath,
 	})
 	if err != nil {
 		log.Printf("[%s] heartbeat failed: %v", host, err)

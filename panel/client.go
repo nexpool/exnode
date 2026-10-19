@@ -87,6 +87,9 @@ type HeartbeatRequest struct {
 	// PrimaryInterface is the node's default-route NIC, so the panel can propose
 	// the right underlay device for tunnels instead of asking the operator.
 	PrimaryInterface string `json:"primary_interface,omitempty"`
+	// BinaryPath is the executable this agent runs from: two agents on one host
+	// that share a file overwrite each other during self-update.
+	BinaryPath string `json:"binary_path,omitempty"`
 }
 
 // UpgradeDirective is a self-upgrade order from the panel: download URL, replace
