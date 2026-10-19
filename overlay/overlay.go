@@ -476,6 +476,61 @@ func Remove(name string) {
 	}
 }
 
+// managedInputRules are the INPUT specs this package owns; managedForwardRules
+// the FORWARD ones. Only these are ever deduplicated or removed.
+func managedInputRules(links []Config) map[string]struct{} {
+	out := map[string]struct{}{"-p 4 -j ACCEPT": {}, "-p 47 -j ACCEPT": {}}
+	for _, c := range links {
+		if c.Name != "" {
+			out["-i "+c.Name+" -j ACCEPT"] = struct{}{}
+		}
+	}
+	return out
+}
+
+func managedForwardRules(links []Config) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, c := range links {
+		if c.Name == "" {
+			continue
+		}
+		out["-i "+c.Name+" -j ACCEPT"] = struct{}{}
+		out["-o "+c.Name+" -j ACCEPT"] = struct{}{}
+	}
+	return out
+}
+
+// dedupeRules deletes repeated copies of the rules listed in keep, leaving one.
+// Earlier agents added a copy on every sync (the -C check omitted -j ACCEPT), so
+// a long-running node accumulated dozens of identical lines.
+func dedupeRules(chain string, keep map[string]struct{}) int {
+	if len(keep) == 0 {
+		return 0
+	}
+	out, err := exec.Command("iptables", "-S", chain).Output()
+	if err != nil {
+		return 0
+	}
+	counts := map[string]int{}
+	for _, line := range strings.Split(string(out), "\n") {
+		spec := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "-A "))
+		if _, ok := keep[spec]; ok {
+			counts[spec]++
+		}
+	}
+	removed := 0
+	for spec, n := range counts {
+		for i := 1; i < n; i++ {
+			args := append([]string{"-D", chain}, strings.Fields(spec)...)
+			if exec.Command("iptables", args...).Run() != nil {
+				break
+			}
+			removed++
+		}
+	}
+	return removed
+}
+
 // SelfCheck reports the host-side prerequisites a working tunnel needs and that
 // are easy to lose: IPv4 forwarding and a FORWARD accept rule for the link.
 // It only logs when something is wrong, at most once every five minutes per
@@ -486,6 +541,9 @@ func SelfCheck(links []Config) {
 	}
 	if b, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward"); err == nil && strings.TrimSpace(string(b)) != "1" {
 		warnOnce("ip_forward", "ip_forward is 0: packets that arrive from a tunnel and are not addressed to this node are dropped")
+	}
+	if n := dedupeRules("INPUT", managedInputRules(links)) + dedupeRules("FORWARD", managedForwardRules(links)); n > 0 {
+		warnOnce("dedupe", "removed duplicate tunnel firewall rules (older agents added one per sync)", n)
 	}
 	for _, c := range links {
 		for _, spec := range forwardSpecs(c) {
@@ -498,7 +556,7 @@ func SelfCheck(links []Config) {
 }
 
 // warnOnce logs a self-check problem at most once per five minutes.
-func warnOnce(key, msg string) {
+func warnOnce(key, msg string, args ...any) {
 	warnMu.Lock()
 	defer warnMu.Unlock()
 	if warnSeen == nil {
@@ -508,6 +566,7 @@ func warnOnce(key, msg string) {
 		return
 	}
 	warnSeen[key] = time.Now()
+	msg = fmt.Sprintf(msg, args...)
 	log.Printf("[overlay] self-check: %s", msg)
 }
 
