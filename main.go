@@ -55,6 +55,16 @@ var version = "dev"
 var defaultKey = "exnodeKey-1123123"
 
 func main() {
+	// Version is handy to check without a shell wrapper: exnode version / -v /
+	// --version / -version all print the same line and exit.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version", "v", "-v", "--version":
+			fmt.Println(version)
+			return
+		}
+	}
+
 	configPath := flag.String("c", "/etc/exnode/config.yml", "config file path")
 	keyFlag := flag.String("k", "", "AES passphrase for an encrypted config (overrides EXNODE_KEY)")
 	encrypt := flag.Bool("encrypt", false, "encrypt the -c config file in place and exit")

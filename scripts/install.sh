@@ -180,7 +180,7 @@ case "${1:-}" in
   restart) systemctl restart exnode ;;
   status)  systemctl status exnode --no-pager ;;
   log)     journalctl -u exnode -f ;;
-  version) "$BIN" -version ;;
+  version|v|-v|--version) "$BIN" -version ;;
   config)  ${EDITOR:-vi} /etc/exnode/config.yml ;;
   update)
     v=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
