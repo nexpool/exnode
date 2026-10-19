@@ -188,6 +188,9 @@ func (c *Controller) heartbeatTick(force bool) {
 		return
 	}
 	selfupdate.ClearError()
+	if resp.Warn != "" {
+		log.Printf("[%s] panel warning: %s", host, resp.Warn)
+	}
 
 	if resp.Restart {
 		if exe, err := os.Executable(); err == nil {

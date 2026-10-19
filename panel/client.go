@@ -108,6 +108,8 @@ type HeartbeatResponse struct {
 	Upgrade        *UpgradeDirective `json:"upgrade,omitempty"`
 	// Restart asks the agent to re-exec itself once (drops a stale binary image).
 	Restart bool `json:"restart,omitempty"`
+	// Warn is a panel-side advisory (e.g. another agent uses this NodeID).
+	Warn string `json:"warn,omitempty"`
 }
 
 type SyncResponse struct {
