@@ -210,6 +210,10 @@ func (c *Controller) sync() {
 	c.vxlan = nextVXLAN
 	c.mu.Unlock()
 	overlay.Reconcile(prevVXLAN, nextVXLAN)
+	// NAT is reconciled by the engine, so a failing engine would also lose
+	// masquerading and forwarding. Each interface enables NAT on its own: it
+	// depends only on the interface config, and the rules are idempotent.
+	c.ensureNAT(desired)
 	if applyErr != nil {
 		log.Printf("[%s] engine apply failed (overlay links still applied): %v", host, applyErr)
 		return
@@ -227,6 +231,20 @@ func (c *Controller) sync() {
 
 	log.Printf("[%s] synced revision %d, engine %s (%d interface(s), %d overlay link(s): %s)",
 		host, resp.ConfigRevision, c.engineType, len(desired), len(nextVXLAN), overlayNames(nextVXLAN))
+}
+
+// ensureNAT (re)applies masquerading and forwarding for every interface that
+// asks for it. Rules are idempotent, so this is a cheap safety net for nodes
+// whose datapath engine is failing.
+func (c *Controller) ensureNAT(ifaces []wg.Interface) {
+	for _, iface := range ifaces {
+		if !wg.NATEnabled(iface) {
+			continue
+		}
+		if _, err := wg.SetupNAT(iface); err != nil {
+			log.Printf("[nat] %s: %v", iface.Name, err)
+		}
+	}
 }
 
 // overlayNames lists the overlay links of a sync for the log line, so "the panel
