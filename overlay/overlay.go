@@ -500,6 +500,18 @@ func managedForwardRules(links []Config) map[string]struct{} {
 	return out
 }
 
+// ruleSpec turns an "iptables -S" line into the match spec it documents:
+// "-A INPUT -p 4 -j ACCEPT" -> "-p 4 -j ACCEPT" (the chain is dropped), and
+// "" for policy/counter lines. Dropping only "-A " left the chain name in the
+// spec, so nothing ever matched and the cleanup did nothing.
+func ruleSpec(line string) string {
+	fields := strings.Fields(line)
+	if len(fields) < 3 || fields[0] != "-A" {
+		return ""
+	}
+	return strings.Join(fields[2:], " ")
+}
+
 // dedupeRules deletes repeated copies of the rules listed in keep, leaving one.
 // Earlier agents added a copy on every sync (the -C check omitted -j ACCEPT), so
 // a long-running node accumulated dozens of identical lines.
@@ -513,7 +525,10 @@ func dedupeRules(chain string, keep map[string]struct{}) int {
 	}
 	counts := map[string]int{}
 	for _, line := range strings.Split(string(out), "\n") {
-		spec := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "-A "))
+		spec := ruleSpec(line)
+		if spec == "" {
+			continue
+		}
 		if _, ok := keep[spec]; ok {
 			counts[spec]++
 		}

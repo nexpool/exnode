@@ -278,6 +278,22 @@ func TestManagedRules(t *testing.T) {
 	}
 }
 
+// iptables -S lines carry the chain; the cleanup matches on the rest only.
+func TestRuleSpec(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"-A INPUT -p 4 -j ACCEPT", "-p 4 -j ACCEPT"},
+		{"-A FORWARD -o ipip7 -j ACCEPT", "-o ipip7 -j ACCEPT"},
+		{"-P INPUT ACCEPT", ""},
+		{"-A INPUT", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := ruleSpec(c.in); got != c.want {
+			t.Fatalf("ruleSpec(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // ipip/gre are created with "ip tunnel add … mode <kind>"; vxlan keeps its own
 // incantation (and an empty Kind still means vxlan).
 func TestAddArgsTunnelKinds(t *testing.T) {
