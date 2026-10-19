@@ -21,6 +21,7 @@ import (
 	"github.com/nexpool/exnode/conf"
 	"github.com/nexpool/exnode/engine"
 	"github.com/nexpool/exnode/node"
+	"github.com/nexpool/exnode/selfupdate"
 )
 
 // singboxConfig builds the node-local sing-box options for one panel. The
@@ -61,6 +62,9 @@ func main() {
 		switch os.Args[1] {
 		case "version", "v", "-v", "--version":
 			fmt.Println(version)
+			if exe, err := os.Executable(); err == nil {
+				fmt.Println("path:", exe)
+			}
 			return
 		}
 	}
@@ -115,6 +119,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// A binary replaced while this process kept running (docker cp, install.sh, a
+	// supervisor that did not restart it) would otherwise keep the old version
+	// forever: "exnode version" reads the file, the panel reads this process.
+	selfupdate.Adopt(version)
+
 	osName := runtime.GOOS
 	var wg sync.WaitGroup
 	for _, p := range cfg.Nodes {
@@ -126,7 +135,8 @@ func main() {
 		}()
 	}
 
-	log.Printf("exnode %s started for %d panel(s)", version, len(cfg.Nodes))
+	exe, _ := os.Executable()
+	log.Printf("exnode %s started (pid %d, %s) for %d panel(s)", version, os.Getpid(), exe, len(cfg.Nodes))
 	<-ctx.Done()
 	wg.Wait()
 	log.Println("exnode stopped")

@@ -74,6 +74,68 @@ func setUpgradeError(format string, args ...any) {
 	log.Printf("self-upgrade failed: %s", msg)
 }
 
+// Adopt runs the executable on disk when it is a newer build than this process.
+// After a binary is replaced outside systemd (docker cp, install.sh, a copy that
+// a supervisor never restarted) the old process keeps running the replaced file,
+// so the panel sees the old version forever while "exnode version" (which reads the
+// file) prints the new one. Called once at startup; a no-op when they match.
+func Adopt(current string) {
+	exe, err := os.Executable()
+	if err != nil || exe == "" {
+		return
+	}
+	out, err := exec.Command(exe, "-version").Output()
+	if err != nil {
+		return
+	}
+	fileVersion := strings.TrimSpace(string(out))
+	if fileVersion == "" || fileVersion == current || !newerVersion(fileVersion, current) {
+		return
+	}
+	log.Printf("running %s but %s is %s: re-executing into the newer build", current, exe, fileVersion)
+	if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+		log.Printf("re-exec %s failed: %v", exe, err)
+	}
+}
+
+// newerVersion reports whether a is a higher version than b ("v1.3.5" > "v1.3.2").
+func newerVersion(a, b string) bool {
+	pa, pb := versionParts(a), versionParts(b)
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			x = pa[i]
+		}
+		if i < len(pb) {
+			y = pb[i]
+		}
+		if x != y {
+			return x > y
+		}
+	}
+	return false
+}
+
+// versionParts turns "v1.3.5" into [1 3 5], ignoring prefixes and suffixes.
+func versionParts(v string) []int {
+	v = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(v), "v"))
+	if v == "" {
+		return nil
+	}
+	var out []int
+	for _, part := range strings.Split(v, ".") {
+		n := 0
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				break
+			}
+			n = n*10 + int(r-'0')
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
 // Order is one upgrade instruction from the panel.
 type Order struct {
 	Version string
