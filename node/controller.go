@@ -32,6 +32,9 @@ type Controller struct {
 	osName    string
 	// binaryPath is the executable this process runs from.
 	binaryPath string
+	// pid / startedAt identify this process in the heartbeat.
+	pid       int
+	startedAt int64
 	// primaryIf is the default-route NIC, reported to the panel so tunnel
 	// underlay devices can be prefilled instead of looked up by hand.
 	primaryIf string
@@ -62,6 +65,8 @@ func NewController(p conf.PanelConfig, singbox engine.SingboxConfig, version, os
 		osName:     osName,
 		primaryIf:  primaryInterface(),
 		binaryPath: selfPath(),
+		pid:        os.Getpid(),
+		startedAt:  time.Now().Unix(),
 	}
 }
 
@@ -174,6 +179,8 @@ func (c *Controller) heartbeatTick(force bool) {
 		UpgradeError:     selfupdate.PendingError(),
 		PrimaryInterface: c.primaryIf,
 		BinaryPath:       c.binaryPath,
+		PID:              c.pid,
+		StartedAt:        c.startedAt,
 	})
 	if err != nil {
 		log.Printf("[%s] heartbeat failed: %v", host, err)

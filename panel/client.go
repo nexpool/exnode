@@ -90,6 +90,10 @@ type HeartbeatRequest struct {
 	// BinaryPath is the executable this agent runs from: two agents on one host
 	// that share a file overwrite each other during self-update.
 	BinaryPath string `json:"binary_path,omitempty"`
+	// PID and StartedAt identify this process: one NodeID must not be served by
+	// two agents, and alternating versions are the symptom when it is.
+	PID       int   `json:"pid,omitempty"`
+	StartedAt int64 `json:"started_at,omitempty"`
 }
 
 // UpgradeDirective is a self-upgrade order from the panel: download URL, replace
