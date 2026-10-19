@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The agent's release assets are named "exnode-<os>-<arch>" (see the release
@@ -142,4 +143,24 @@ func TestFirstLine(t *testing.T) {
 	if got := firstLine("  v1.3.5  "); got != "v1.3.5" {
 		t.Fatalf("firstLine = %q", got)
 	}
+}
+
+// The retry cooldown must not slide forward while calls are skipped, or the
+// retry never happens while heartbeats keep arriving.
+func TestMaybeCooldown(t *testing.T) {
+	attemptMu.Lock()
+	attemptVersion = "v9.9.9"
+	lastAttempt = time.Now().Add(-4 * time.Minute) // one minute left
+	attemptMu.Unlock()
+	Maybe(&Order{Version: "v9.9.9", URL: "http://127.0.0.1:1/exnode"}, "v1.0.0") // skipped: too soon
+	attemptMu.Lock()
+	elapsed := time.Since(lastAttempt)
+	attemptMu.Unlock()
+	if elapsed < 3*time.Minute {
+		t.Fatalf("a skipped call moved lastAttempt: now %s ago", elapsed)
+	}
+	attemptMu.Lock()
+	attemptVersion = ""
+	lastAttempt = time.Time{}
+	attemptMu.Unlock()
 }

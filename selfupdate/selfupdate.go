@@ -217,7 +217,13 @@ func Maybe(order *Order, current string) {
 		lastAttempt = time.Time{}
 	}
 	tooSoon := !lastAttempt.IsZero() && time.Since(lastAttempt) < retryAfter
-	lastAttempt = time.Now()
+	// The attempt time must only move when an attempt actually runs: refreshing it
+	// on skipped calls (a heartbeat arrives every 15s) slid the cooldown window
+	// forward forever, so a failed attempt was never retried and the node looked
+	// stuck on "upgrading" until the panel timed the order out.
+	if !tooSoon {
+		lastAttempt = time.Now()
+	}
 	attemptMu.Unlock()
 	if tooSoon {
 		log.Printf("self-upgrade to %s skipped: retrying at most every %s (last error: %s)", order.Version, retryAfter, PendingError())
