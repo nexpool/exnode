@@ -242,6 +242,20 @@ func TestMatchesLocalIP(t *testing.T) {
 	}
 }
 
+// A tunnel must be allowed through FORWARD in both directions.
+func TestForwardSpecs(t *testing.T) {
+	specs := forwardSpecs(Config{Name: "ipip7"})
+	if len(specs) != 2 {
+		t.Fatalf("got %d specs, want 2: %v", len(specs), specs)
+	}
+	if specs[0][0] != "-i" || specs[0][1] != "ipip7" || specs[1][0] != "-o" || specs[1][1] != "ipip7" {
+		t.Fatalf("wrong specs: %v", specs)
+	}
+	if len(forwardSpecs(Config{})) != 0 {
+		t.Fatal("an unnamed config must not add FORWARD rules")
+	}
+}
+
 // ipip/gre are created with "ip tunnel add … mode <kind>"; vxlan keeps its own
 // incantation (and an empty Kind still means vxlan).
 func TestAddArgsTunnelKinds(t *testing.T) {

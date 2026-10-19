@@ -18,6 +18,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // VXLANOverhead is how many bytes VXLAN adds around the inner packet (outer IPv4
@@ -328,6 +330,58 @@ func firewallForget(name string) {
 	}
 }
 
+// forwardSpecs are the FORWARD match specs a tunnel needs: traffic arriving
+// from it (the peer's LAN heading out) and traffic going into it (answers).
+func forwardSpecs(c Config) [][]string {
+	if c.Name == "" {
+		return nil
+	}
+	return [][]string{{"-i", c.Name}, {"-o", c.Name}}
+}
+
+// ensureForwarding turns IPv4 forwarding on. A host with it disabled silently
+// drops everything that arrives from the tunnel but is not addressed to the node
+// itself, which looks exactly like "the tunnel is up but there is no internet".
+func ensureForwarding() {
+	const path = "/proc/sys/net/ipv4/ip_forward"
+	if b, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(b)) == "1" {
+		return
+	}
+	if err := os.WriteFile(path, []byte("1\n"), 0o644); err != nil {
+		log.Printf("[overlay] enable ip_forward: %v (traffic between this tunnel and the uplink will be dropped)", err)
+	}
+}
+
+// forwardAllow lets a tunnel's traffic be routed through this node. Hosts whose
+// FORWARD policy is DROP (docker installs that) otherwise drop every packet that
+// arrives from the tunnel and is not addressed to the node itself.
+func forwardAllow(c Config) {
+	for _, spec := range forwardSpecs(c) {
+		check := append(append([]string{"-C", "FORWARD"}, spec...), "-j", "ACCEPT")
+		if exec.Command("iptables", check...).Run() == nil {
+			continue
+		}
+		args := append([]string{"-I", "FORWARD"}, spec...)
+		args = append(args, "-j", "ACCEPT")
+		if out, err := exec.Command("iptables", args...).CombinedOutput(); err != nil {
+			log.Printf("[overlay] forward allow %v: %v (%s)", spec, err, strings.TrimSpace(string(out)))
+		}
+	}
+}
+
+// forwardForget drops the FORWARD rules of a removed tunnel.
+func forwardForget(name string) {
+	for _, spec := range forwardSpecs(Config{Name: name}) {
+		for i := 0; i < 8; i++ {
+			args := append([]string{"-D", "FORWARD"}, spec...)
+			args = append(args, "-j", "ACCEPT")
+			if err := exec.Command("iptables", args...).Run(); err != nil {
+				break
+			}
+		}
+	}
+}
+
 // relaxRPFilter turns reverse-path filtering down to loose mode for the tunnel
 // link (strict mode drops packets that arrive on a tunnel whose reverse route
 // looks asymmetric). The kernel takes the maximum of all/rp_filter and the
@@ -386,6 +440,8 @@ func Ensure(c Config) {
 	// that reverse-path filtering does not silently drop its packets.
 	relaxRPFilter(c.Name)
 	firewallAllow(c)
+	ensureForwarding()
+	forwardAllow(c)
 	if mtu := linkMTU(c); mtu > 0 {
 		if err := ip("link", "set", c.Name, "mtu", strconv.Itoa(mtu)); err != nil {
 			log.Printf("[overlay] mtu %s: %v", c.Name, err)
@@ -414,10 +470,51 @@ func Remove(name string) {
 		return
 	}
 	firewallForget(name)
+	forwardForget(name)
 	if err := ip("link", "del", name); err != nil {
 		log.Printf("[overlay] remove %s: %v", name, err)
 	}
 }
+
+// SelfCheck reports the host-side prerequisites a working tunnel needs and that
+// are easy to lose: IPv4 forwarding and a FORWARD accept rule for the link.
+// It only logs when something is wrong, at most once every five minutes per
+// problem, so a broken node is visible without flooding the journal.
+func SelfCheck(links []Config) {
+	if len(links) == 0 {
+		return
+	}
+	if b, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward"); err == nil && strings.TrimSpace(string(b)) != "1" {
+		warnOnce("ip_forward", "ip_forward is 0: packets that arrive from a tunnel and are not addressed to this node are dropped")
+	}
+	for _, c := range links {
+		for _, spec := range forwardSpecs(c) {
+			check := append(append([]string{"-C", "FORWARD"}, spec...), "-j", "ACCEPT")
+			if exec.Command("iptables", check...).Run() != nil {
+				warnOnce("forward"+c.Name+strings.Join(spec, ""), "no FORWARD accept for "+strings.Join(spec, " ")+": traffic through "+c.Name+" is dropped")
+			}
+		}
+	}
+}
+
+// warnOnce logs a self-check problem at most once per five minutes.
+func warnOnce(key, msg string) {
+	warnMu.Lock()
+	defer warnMu.Unlock()
+	if warnSeen == nil {
+		warnSeen = map[string]time.Time{}
+	}
+	if last, ok := warnSeen[key]; ok && time.Since(last) < 5*time.Minute {
+		return
+	}
+	warnSeen[key] = time.Now()
+	log.Printf("[overlay] self-check: %s", msg)
+}
+
+var (
+	warnMu   sync.Mutex
+	warnSeen map[string]time.Time
+)
 
 // Reconcile converges the node's overlay links from prev to next.
 func Reconcile(prev, next []Config) {
@@ -433,4 +530,5 @@ func Reconcile(prev, next []Config) {
 	for _, c := range ensure {
 		Ensure(c)
 	}
+	SelfCheck(next)
 }
