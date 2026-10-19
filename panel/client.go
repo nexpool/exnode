@@ -106,6 +106,8 @@ type UpgradeDirective struct {
 type HeartbeatResponse struct {
 	ConfigRevision uint              `json:"config_revision"`
 	Upgrade        *UpgradeDirective `json:"upgrade,omitempty"`
+	// Restart asks the agent to re-exec itself once (drops a stale binary image).
+	Restart bool `json:"restart,omitempty"`
 }
 
 type SyncResponse struct {

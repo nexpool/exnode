@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/nexpool/exnode/conf"
@@ -188,6 +189,14 @@ func (c *Controller) heartbeatTick(force bool) {
 	}
 	selfupdate.ClearError()
 
+	if resp.Restart {
+		if exe, err := os.Executable(); err == nil {
+			log.Printf("[%s] panel asked for a restart: re-executing %s", host, exe)
+			if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+				log.Printf("[%s] re-exec failed: %v (keeping this process)")
+			}
+		}
+	}
 	if resp.Upgrade != nil {
 		log.Printf("[%s] panel requested upgrade to %s", host, resp.Upgrade.Version)
 		selfupdate.Maybe(&selfupdate.Order{Version: resp.Upgrade.Version, URL: resp.Upgrade.URL}, c.version)
