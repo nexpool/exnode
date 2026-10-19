@@ -86,6 +86,12 @@ func Maybe(order *Order, current string) {
 	if order == nil || order.Version == "" || order.Version == current {
 		return
 	}
+	if strings.TrimSpace(order.URL) == "" {
+		// The panel would otherwise keep re-sending an order that can never run and
+		// the node would look stuck in "upgrading".
+		setUpgradeError("upgrade to %s: the panel sent no download URL", order.Version)
+		return
+	}
 	if !upgrading.CompareAndSwap(false, true) {
 		return // another controller already started the upgrade
 	}
@@ -100,6 +106,7 @@ func Maybe(order *Order, current string) {
 	lastAttempt = time.Now()
 	attemptMu.Unlock()
 	if tooSoon {
+		log.Printf("self-upgrade to %s skipped: retrying at most every %s (last error: %s)", order.Version, retryAfter, PendingError())
 		return // keep reporting the previous error, retry after the cooldown
 	}
 
