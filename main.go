@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/nexpool/exnode/conf"
 	"github.com/nexpool/exnode/engine"
@@ -123,6 +124,9 @@ func main() {
 	// supervisor that did not restart it) would otherwise keep the old version
 	// forever: "exnode version" reads the file, the panel reads this process.
 	selfupdate.Adopt(version)
+	// Keep watching: an upgrade that replaces the file without restarting this
+	// process would otherwise leave it reporting the old version forever.
+	go selfupdate.Watch(ctx, version, 2*time.Minute)
 
 	osName := runtime.GOOS
 	var wg sync.WaitGroup

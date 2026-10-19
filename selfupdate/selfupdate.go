@@ -9,6 +9,7 @@
 package selfupdate
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -84,18 +85,69 @@ func Adopt(current string) {
 	if err != nil || exe == "" {
 		return
 	}
-	out, err := exec.Command(exe, "-version").Output()
-	if err != nil {
+	adopt(exe, current, "checked at startup")
+}
+
+// Watch keeps the process on the newest binary on disk: whenever the file behind
+// this process changes (an upgrade that replaced it without a restart, a manual
+// install) and its version is newer, the process re-executes into it. Called once
+// at startup it heals a node that would otherwise report the old version forever.
+func Watch(ctx context.Context, current string, every time.Duration) {
+	exe, err := os.Executable()
+	if err != nil || exe == "" {
 		return
 	}
-	fileVersion := strings.TrimSpace(string(out))
+	stamp := fileStamp(exe)
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		next := fileStamp(exe)
+		if next == stamp {
+			continue // the file did not change: nothing to do, no version probe
+		}
+		stamp = next
+		adopt(exe, current, "the binary on disk changed")
+	}
+}
+
+// fileStamp identifies the current contents of a file cheaply (no exec).
+func fileStamp(path string) string {
+	st, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d-%d", st.Size(), st.ModTime().UnixNano())
+}
+
+// adopt re-executes into exe when its version is newer than current.
+func adopt(exe, current, why string) {
+	out, err := exec.Command(exe, "-version").Output()
+	if err != nil {
+		log.Printf("self-check: %s but %s -version failed: %v", why, exe, err)
+		return
+	}
+	fileVersion := firstLine(string(out))
 	if fileVersion == "" || fileVersion == current || !newerVersion(fileVersion, current) {
 		return
 	}
-	log.Printf("running %s but %s is %s: re-executing into the newer build", current, exe, fileVersion)
+	log.Printf("self-check: running %s while %s is %s (%s): re-executing into the newer build", current, exe, fileVersion, why)
 	if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
-		log.Printf("re-exec %s failed: %v", exe, err)
+		log.Printf("self-check: re-exec %s failed: %v — restart the service to pick up %s", exe, err, fileVersion)
 	}
+}
+
+// firstLine is the version line of "-version" output (older builds printed the
+// path on a second line).
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
 }
 
 // newerVersion reports whether a is a higher version than b ("v1.3.5" > "v1.3.2").

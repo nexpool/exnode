@@ -115,3 +115,31 @@ func TestMaybeUpgradeRecordsFailure(t *testing.T) {
 		t.Fatalf("error not cleared: %q", msg)
 	}
 }
+
+func TestNewerVersion(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"v1.3.5", "v1.3.2", true},
+		{"1.3.5", "v1.3.2", true},
+		{"v1.3.2", "v1.3.5", false},
+		{"v1.3.5", "v1.3.5", false},
+		{"v1.4", "v1.3.9", true},
+		{"v1.3.5", "", true},
+	}
+	for _, c := range cases {
+		if got := newerVersion(c.a, c.b); got != c.want {
+			t.Fatalf("newerVersion(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+func TestFirstLine(t *testing.T) {
+	if got := firstLine("v1.3.5\npath: /usr/local/exnode/exnode"); got != "v1.3.5" {
+		t.Fatalf("firstLine = %q", got)
+	}
+	if got := firstLine("  v1.3.5  "); got != "v1.3.5" {
+		t.Fatalf("firstLine = %q", got)
+	}
+}
