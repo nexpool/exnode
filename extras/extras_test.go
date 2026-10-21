@@ -67,3 +67,19 @@ func joinArgs(f []string) string {
 	}
 	return out
 }
+
+// The operator may paste the exact shell line, not just the arguments.
+func TestParseFullCommands(t *testing.T) {
+	if got, err := ParseRouteLine("ip route add 10.10.200.0/24 via 10.10.37.1"); err != nil ||
+		joinArgs(got) != "route replace 10.10.200.0/24 via 10.10.37.1" {
+		t.Fatalf("route: %v %q", err, joinArgs(got))
+	}
+	if got, err := ParseRuleLine("ip rule add from 192.168.200.240/32 to 10.10.200.0/24 lookup main priority 32000"); err != nil ||
+		joinArgs(got) != "from 192.168.200.240/32 to 10.10.200.0/24 lookup main priority 32000" {
+		t.Fatalf("rule: %v %q", err, joinArgs(got))
+	}
+	want := "-s 192.168.200.240/32 -d 10.10.200.0/24 -o ens160 -j MASQUERADE"
+	if got, err := ParseNATLine("iptables -t nat -A POSTROUTING " + want); err != nil || joinArgs(got) != want {
+		t.Fatalf("nat: %v %q", err, joinArgs(got))
+	}
+}

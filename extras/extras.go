@@ -42,8 +42,25 @@ func normalizeLines(lines []string) []string {
 	return out
 }
 
+// stripPrefix removes a leading command word sequence, so the operator can paste
+// the exact shell line ("ip route add 10.0.0.0/8 via 1.1.1.1") instead of the bare
+// arguments. Only the prefixes in prefixes are removed, longest first.
+func stripPrefix(line string, prefixes []string) string {
+	line = strings.TrimSpace(line)
+	for _, p := range prefixes {
+		if strings.HasPrefix(line, p+" ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, p))
+		}
+	}
+	return line
+}
+
 // ParseRouteLine turns "DST via GW [table N]" into the argv of ip route replace.
 func ParseRouteLine(line string) ([]string, error) {
+	line = stripPrefix(line, []string{
+		"ip route add", "ip route replace", "ip -4 route add", "ip -4 route replace",
+		"ip route", "ip -4 route",
+	})
 	f := strings.Fields(line)
 	if len(f) < 3 || f[1] != "via" {
 		return nil, fmt.Errorf("route %q: expected \"<cidr> via <gateway> [table N]\"", line)
@@ -61,6 +78,7 @@ func ParseRouteLine(line string) ([]string, error) {
 // ParseRuleLine validates "from … [to …] lookup … [priority N]" and returns the
 // argv of ip rule add without the leading "rule add".
 func ParseRuleLine(line string) ([]string, error) {
+	line = stripPrefix(line, []string{"ip rule add", "ip -4 rule add", "ip rule", "ip -4 rule"})
 	f := strings.Fields(line)
 	if len(f) < 3 || f[0] != "from" {
 		return nil, fmt.Errorf("rule %q: expected \"from <cidr> [to <cidr>] lookup <table> [priority N]\"", line)
@@ -98,6 +116,13 @@ func ParseRuleLine(line string) ([]string, error) {
 // ("-s … -d … -o … -j MASQUERADE"), rejecting anything that is not a match or a
 // MASQUERADE/SNAT target.
 func ParseNATLine(line string) ([]string, error) {
+	line = stripPrefix(line, []string{
+		"iptables -t nat -A POSTROUTING",
+		"iptables -A POSTROUTING -t nat",
+		"iptables -t nat -I POSTROUTING",
+		"iptables -t nat -A",
+		"iptables -t nat",
+	})
 	f := strings.Fields(line)
 	if len(f) == 0 {
 		return nil, fmt.Errorf("empty nat rule")
