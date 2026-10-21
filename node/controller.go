@@ -16,6 +16,7 @@ import (
 
 	"github.com/nexpool/exnode/conf"
 	"github.com/nexpool/exnode/engine"
+	"github.com/nexpool/exnode/extras"
 	"github.com/nexpool/exnode/overlay"
 	"github.com/nexpool/exnode/panel"
 	"github.com/nexpool/exnode/selfupdate"
@@ -45,8 +46,9 @@ type Controller struct {
 	engineType string
 	revKnown   bool
 	revision   uint
-	desired    []wg.Interface   // last applied desired state (for the policy watchdog)
-	vxlan      []overlay.Config // overlay links currently applied
+	desired    []wg.Interface           // last applied desired state (for the policy watchdog)
+	vxlan      []overlay.Config         // overlay links currently applied
+	extras     map[string]extras.Extras // custom routes/rules/NAT applied per interface
 }
 
 // policyWatchdogEvery is how often the agent re-checks policy routes and re-adds
@@ -68,6 +70,7 @@ func NewController(p conf.PanelConfig, singbox engine.SingboxConfig, version, os
 		binaryPath: selfPath(),
 		pid:        os.Getpid(),
 		startedAt:  time.Now().Unix(),
+		extras:     map[string]extras.Extras{},
 	}
 }
 
@@ -247,6 +250,7 @@ func (c *Controller) sync() {
 	// masquerading and forwarding. Each interface enables NAT on its own: it
 	// depends only on the interface config, and the rules are idempotent.
 	c.ensureNAT(desired)
+	c.ensureExtras(desired)
 	if applyErr != nil {
 		log.Printf("[%s] engine apply failed (overlay links still applied): %v", host, applyErr)
 		return
@@ -264,6 +268,30 @@ func (c *Controller) sync() {
 
 	log.Printf("[%s] synced revision %d, engine %s (%d interface(s), %d overlay link(s): %s)",
 		host, resp.ConfigRevision, c.engineType, len(desired), len(nextVXLAN), overlayNames(nextVXLAN))
+}
+
+// ensureExtras converges the operator's custom routes, ip rules and NAT entries.
+// Like NAT it is independent of the datapath engine: a failing engine must not
+// silently leave these out.
+func (c *Controller) ensureExtras(ifaces []wg.Interface) {
+	for _, iface := range ifaces {
+		prev := extras.Extras{}
+		c.mu.Lock()
+		if c.extras != nil {
+			prev = c.extras[iface.Name]
+		}
+		c.mu.Unlock()
+		if prev.IsZero() && iface.Extras.IsZero() {
+			continue
+		}
+		extras.Reconcile(prev, iface.Extras)
+		c.mu.Lock()
+		if c.extras == nil {
+			c.extras = map[string]extras.Extras{}
+		}
+		c.extras[iface.Name] = iface.Extras
+		c.mu.Unlock()
+	}
 }
 
 // ensureNAT (re)applies masquerading and forwarding for every interface that
@@ -378,6 +406,7 @@ func toEngineInterface(in panel.Interface) wg.Interface {
 		EgressInterface: in.EgressInterface,
 		NATSubnets:      in.NATSubnets,
 		PolicyRoutes:    in.PolicyRoutes,
+		Extras:          extras.Extras{Routes: in.ExtraRoutes, Rules: in.ExtraRules, NAT: in.ExtraNAT},
 		Peers:           peers,
 	}
 }

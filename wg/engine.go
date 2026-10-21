@@ -6,6 +6,7 @@ package wg
 
 import (
 	"fmt"
+	"github.com/nexpool/exnode/extras"
 	"net"
 	"strings"
 	"time"
@@ -26,7 +27,9 @@ type Interface struct {
 	EgressInterface string
 	NATSubnets      string
 	PolicyRoutes    string
-	Peers           []Peer
+	// Extras are the operator's custom routes, ip rules and NAT entries.
+	Extras extras.Extras
+	Peers  []Peer
 }
 
 // Peer is the desired state of one peer (only public material the kernel needs).
