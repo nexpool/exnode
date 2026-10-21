@@ -125,6 +125,12 @@ func (c *Controller) policyWatchdogTick() {
 		if iface.PolicyRoutes != "" {
 			wg.EnsurePolicyRoutes(iface.PolicyRoutes)
 		}
+		// The custom routes, rules and NAT entries are installed by hand or by the
+		// panel, and something outside the agent (a NIC restart, netplan apply, a
+		// network reload) removes them now and then. Put back whatever is missing.
+		if !iface.Extras.IsZero() {
+			extras.Ensure(iface.Extras)
+		}
 	}
 }
 

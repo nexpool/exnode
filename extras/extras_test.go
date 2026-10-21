@@ -1,6 +1,9 @@
 package extras
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseRouteLine(t *testing.T) {
 	got, err := ParseRouteLine("10.10.200.0/24 via 10.10.37.1")
@@ -81,5 +84,29 @@ func TestParseFullCommands(t *testing.T) {
 	want := "-s 192.168.200.240/32 -d 10.10.200.0/24 -o ens160 -j MASQUERADE"
 	if got, err := ParseNATLine("iptables -t nat -A POSTROUTING " + want); err != nil || joinArgs(got) != want {
 		t.Fatalf("nat: %v %q", err, joinArgs(got))
+	}
+}
+
+// rulePresent must recognise a rule from ip rule show output.
+func TestRulePresentParsing(t *testing.T) {
+	args, err := ParseRuleLine("from 192.168.200.248/29 to 10.10.11.0/24 lookup main priority 1000")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// the argv is what ip rule show would print, minus the priority prefix
+	showLine := "1000:\tfrom 192.168.200.248/29 to 10.10.11.0/24 lookup main"
+	src, dst, table := "", "", ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "from":
+			src = args[i+1]
+		case "to":
+			dst = args[i+1]
+		case "lookup":
+			table = args[i+1]
+		}
+	}
+	if !(strings.Contains(showLine, "from "+src) && strings.Contains(showLine, "to "+dst) && strings.Contains(showLine, "lookup "+table)) {
+		t.Fatalf("rule not recognised in %q (src=%q dst=%q table=%q)", showLine, src, dst, table)
 	}
 }

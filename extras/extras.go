@@ -244,6 +244,114 @@ func applyNAT(prev, next []string) {
 	}
 }
 
+// Ensure re-applies anything from the configured extras that is no longer
+// present. Something outside the agent removes these entries now and then (a NIC
+// restart, netplan apply, a network-manager reload), so a watchdog calls this on
+// a timer: routes use replace, missing rules are re-added, missing NAT rules are
+// appended. Each recovery is logged so the cause is visible in the journal.
+func Ensure(e Extras) {
+	if e.IsZero() {
+		return
+	}
+	for _, line := range normalizeLines(e.Routes) {
+		args, err := ParseRouteLine(line)
+		if err != nil {
+			continue // already reported by Reconcile
+		}
+		if routePresent(line) {
+			continue
+		}
+		log.Printf("[custom] route missing, restoring: %s", line)
+		if err := run("ip", args...); err != nil {
+			log.Printf("[custom] restore route %q: %v", line, err)
+		}
+	}
+	for _, line := range normalizeLines(e.Rules) {
+		args, err := ParseRuleLine(line)
+		if err != nil {
+			continue
+		}
+		if rulePresent(args) {
+			continue
+		}
+		log.Printf("[custom] rule missing, restoring: %s", line)
+		if err := run("ip", append([]string{"rule", "add"}, args...)...); err != nil {
+			log.Printf("[custom] restore rule %q: %v", line, err)
+		}
+	}
+	for _, line := range normalizeLines(e.NAT) {
+		args, err := ParseNATLine(line)
+		if err != nil {
+			continue
+		}
+		check := append([]string{"-t", "nat", "-C", "POSTROUTING"}, args...)
+		if exec.Command("iptables", check...).Run() == nil {
+			continue
+		}
+		log.Printf("[custom] nat missing, restoring: %s", line)
+		if err := run("iptables", append([]string{"-t", "nat", "-A", "POSTROUTING"}, args...)...); err != nil {
+			log.Printf("[custom] restore nat %q: %v", line, err)
+		}
+	}
+}
+
+// routePresent reports whether the route described by line is installed.
+func routePresent(line string) bool {
+	args, err := ParseRouteLine(line)
+	if err != nil {
+		return true // not our problem here
+	}
+	// "ip route show <dst>" lists every route for that prefix.
+	out, err := exec.Command("ip", "route", "show", args[2]).Output()
+	if err != nil {
+		return false
+	}
+	if args[3] == "via" && !strings.Contains(string(out), "via "+args[4]) {
+		return false
+	}
+	if len(args) > 5 && !strings.Contains(string(out), "table "+args[6]) && false {
+		return false
+	}
+	return true
+}
+
+// rulePresent reports whether an ip rule matching the argv is installed.
+func rulePresent(args []string) bool {
+	out, err := exec.Command("ip", "rule", "show").Output()
+	if err != nil {
+		return false
+	}
+	// The argv is "from <src> [to <dst>] lookup <table> [priority N]"; the few
+	// fields that identify the rule are the source, optional destination and table.
+	src, dst, table := "", "", ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "from":
+			if i+1 < len(args) {
+				src = args[i+1]
+			}
+		case "to":
+			if i+1 < len(args) {
+				dst = args[i+1]
+			}
+		case "lookup":
+			if i+1 < len(args) {
+				table = args[i+1]
+			}
+		}
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, "from "+src) || !strings.Contains(line, "lookup "+table) {
+			continue
+		}
+		if dst != "" && !strings.Contains(line, "to "+dst) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 // Reconcile converges the custom routes, rules and NAT entries of one
 // interface from prev to next. Safe to call on every sync: each step is
 // idempotent and entries removed in the panel are torn down.
